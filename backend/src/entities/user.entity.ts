@@ -33,7 +33,7 @@ export class User {
   @Column({ default: 'en', length: 10 }) language: string;
   @Column({ default: 'UTC', length: 100 }) timezone: string;
   @Column({ type: 'enum', enum: ThemePreference, default: ThemePreference.SYSTEM }) theme: ThemePreference;
-  @Column({ type: 'jsonb', default: () => "'{}'" }) dashboardWidgets: Record<string, boolean>;
+  @Column({ name: 'dashboard_widgets', type: 'jsonb', default: () => "'{}'" }) dashboardWidgets: Record<string, boolean>;
   @Column({ name: 'is_active', default: true }) isActive: boolean;
   @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
   @UpdateDateColumn({ name: 'updated_at' }) updatedAt: Date;
