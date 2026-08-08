@@ -52,4 +52,10 @@ export class DashboardController {
   getRecentTransactions(@CurrentUser('sub') userId: string, @Query() query: DashboardQueryDto) {
     return this.dashboardService.getRecentTransactions(userId, query);
   }
+
+  @Get('balances')
+  @ApiOperation({ summary: 'Get all-time cash and account balances' })
+  getBalances(@CurrentUser('sub') userId: string) {
+    return this.dashboardService.getAllTimeBalances(userId);
+  }
 }

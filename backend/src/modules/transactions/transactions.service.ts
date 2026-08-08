@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import dayjs from 'dayjs';
 import { parse } from 'csv-parse/sync';
-import { Transaction, Category, TransactionType } from '../../entities';
+import { Transaction, Category, TransactionType, Subcategory, PaymentMethod, Account } from '../../entities';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
 import { QueryTransactionDto } from './dto/query-transaction.dto';
@@ -20,6 +20,9 @@ export class TransactionsService {
   constructor(
     @InjectRepository(Transaction) private transactionsRepository: Repository<Transaction>,
     @InjectRepository(Category) private categoriesRepository: Repository<Category>,
+    @InjectRepository(Subcategory) private subcategoriesRepository: Repository<Subcategory>,
+    @InjectRepository(PaymentMethod) private paymentMethodsRepository: Repository<PaymentMethod>,
+    @InjectRepository(Account) private accountsRepository: Repository<Account>,
     private exportService: ExportService,
   ) {}
 
@@ -68,6 +71,13 @@ export class TransactionsService {
 
   async create(userId: string, dto: CreateTransactionDto): Promise<Transaction> {
     await this.validateCategoryOwnership(userId, dto.categoryId, dto.type);
+    // If a payment method is provided and it's not cash, an account must be selected
+    if (dto.paymentMethodId) {
+      const pm = await this.paymentMethodsRepository.findOne({ where: { id: dto.paymentMethodId } });
+      if (pm && pm.type !== 'cash' && !dto.accountId) {
+        throw new BadRequestException('An account must be selected when using a non-cash payment method');
+      }
+    }
     const transaction = this.transactionsRepository.create({
       userId,
       type: dto.type,
@@ -95,6 +105,13 @@ export class TransactionsService {
     delete (updatedData as any).time;
 
     Object.assign(transaction, updatedData);
+    // Enforce account when payment method is non-cash
+    if (transaction.paymentMethodId) {
+      const pm = await this.paymentMethodsRepository.findOne({ where: { id: transaction.paymentMethodId } });
+      if (pm && pm.type !== 'cash' && !transaction.accountId) {
+        throw new BadRequestException('An account must be selected when using a non-cash payment method');
+      }
+    }
     await this.transactionsRepository.save(transaction);
     return this.findOne(userId, id);
   }
@@ -180,7 +197,12 @@ export class TransactionsService {
   async importCsv(userId: string, fileBuffer: Buffer): Promise<{ imported: number; failed: number; errors: string[] }> {
     const records: Record<string, string>[] = parse(fileBuffer, { columns: true, skip_empty_lines: true, trim: true });
     const categories = await this.categoriesRepository.find({ where: { userId } });
+    const subcategories = await this.subcategoriesRepository.find({ where: { userId } });
+    const paymentMethods = await this.paymentMethodsRepository.find({ where: { userId } });
+
     const categoryByName = new Map(categories.map((c) => [c.name.toLowerCase(), c]));
+    const subcategoryByName = new Map(subcategories.map((s) => [s.name.toLowerCase(), s]));
+    const paymentMethodByName = new Map(paymentMethods.map((p) => [p.name.toLowerCase(), p]));
 
     let imported = 0;
     const errors: string[] = [];
@@ -191,18 +213,29 @@ export class TransactionsService {
       const type = (row.type || row.Type || '').toLowerCase();
       const amountRaw = row.amount || row.Amount;
       const categoryName = row.category || row.Category;
+      const subcategoryName = row.subcategory || row.Subcategory || row['Subcategory'];
+      const paymentMethodName = row.paymentMethod || row['Payment Method'] || row['paymentMethod'];
       const date = row.date || row.Date;
 
-      if (!['income', 'expense'].includes(type)) { errors.push(`Row ${rowNum}: invalid type "${row.type}"`); return; }
+      if (!['income', 'expense'].includes(type)) { errors.push(`Row ${rowNum}: invalid type "${row.type || row.Type}"`); return; }
       const amount = parseFloat(amountRaw);
       if (!amount || amount <= 0) { errors.push(`Row ${rowNum}: invalid amount "${amountRaw}"`); return; }
       const category = categoryByName.get((categoryName || '').toLowerCase());
       if (!category) { errors.push(`Row ${rowNum}: unknown category "${categoryName}"`); return; }
       if (!date || !dayjs(date).isValid()) { errors.push(`Row ${rowNum}: invalid date "${date}"`); return; }
 
+      const subcategory = subcategoryName ? subcategoryByName.get(subcategoryName.toLowerCase()) : undefined;
+      const paymentMethod = paymentMethodName ? paymentMethodByName.get(paymentMethodName.toLowerCase()) : undefined;
+
       toInsert.push({
-        userId, type: type as TransactionType, amount: amount.toFixed(2), categoryId: category.id,
-        date: dayjs(date).format('YYYY-MM-DD'), notes: row.notes || row.Notes || null,
+        userId,
+        type: type as TransactionType,
+        amount: amount.toFixed(2),
+        categoryId: category.id,
+        subcategoryId: subcategory?.id ?? null,
+        paymentMethodId: paymentMethod?.id ?? null,
+        date: dayjs(date).format('YYYY-MM-DD'),
+        notes: row.notes || row.Notes || null,
       });
     });
 
@@ -213,6 +246,66 @@ export class TransactionsService {
     }
 
     return { imported, failed: errors.length, errors };
+  }
+
+  async createTransfer(userId: string, dto: { fromAccountId?: string | null; toAccountId?: string | null; amount: number; date?: string; notes?: string }) {
+    const { fromAccountId = null, toAccountId = null, amount, date, notes } = dto;
+    if (!amount || amount <= 0) throw new BadRequestException('Invalid transfer amount');
+    if (fromAccountId === toAccountId) throw new BadRequestException('Source and destination accounts must differ');
+
+    // ensure accounts belong to user if provided
+    if (fromAccountId) {
+      const from = await this.accountsRepository.findOne({ where: { id: fromAccountId } });
+      if (!from || from.userId !== userId) throw new NotFoundException('Source account not found');
+    }
+    if (toAccountId) {
+      const to = await this.accountsRepository.findOne({ where: { id: toAccountId } });
+      if (!to || to.userId !== userId) throw new NotFoundException('Destination account not found');
+    }
+
+    // Create/ensure transfer categories for both types
+    const transferExpenseCategory = await this.ensureTransferCategory(userId, TransactionType.EXPENSE);
+    const transferIncomeCategory = await this.ensureTransferCategory(userId, TransactionType.INCOME);
+
+    const dateStr = date && dayjs(date).isValid() ? dayjs(date).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD');
+
+    // Create expense from source (if fromAccountId provided or cash)
+    const expenseTx = this.transactionsRepository.create({
+      userId,
+      type: TransactionType.EXPENSE,
+      amount: amount.toFixed(2),
+      categoryId: transferExpenseCategory.id,
+      subcategoryId: null,
+      date: dateStr,
+      paymentMethodId: null,
+      accountId: fromAccountId,
+      notes: notes ?? null,
+    });
+
+    // Create income to destination
+    const incomeTx = this.transactionsRepository.create({
+      userId,
+      type: TransactionType.INCOME,
+      amount: amount.toFixed(2),
+      categoryId: transferIncomeCategory.id,
+      subcategoryId: null,
+      date: dateStr,
+      paymentMethodId: null,
+      accountId: toAccountId,
+      notes: notes ?? null,
+    });
+
+    const saved = await this.transactionsRepository.save([expenseTx, incomeTx]);
+    return { transferred: saved.length };
+  }
+
+  private async ensureTransferCategory(userId: string, type: TransactionType) {
+    const name = 'Transfer';
+    const categoryRepo = this.categoriesRepository;
+    const existing = await categoryRepo.findOne({ where: { userId, name, type } });
+    if (existing) return existing;
+    const created = categoryRepo.create({ userId, name, type, isDefault: false });
+    return categoryRepo.save(created);
   }
 
   private normalizeTransactionDate(dateValue: string, timeValue?: string, originalDate?: string): string {

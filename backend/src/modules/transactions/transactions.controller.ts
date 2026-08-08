@@ -45,6 +45,12 @@ export class TransactionsController {
     return this.transactionsService.importCsv(userId, file.buffer);
   }
 
+  @Post('transfer')
+  @ApiOperation({ summary: 'Transfer funds between cash and accounts' })
+  transfer(@CurrentUser('sub') userId: string, @Body() body: { fromAccountId?: string | null; toAccountId?: string | null; amount: number; date?: string; notes?: string }) {
+    return this.transactionsService.createTransfer(userId, body);
+  }
+
   @Get(':id')
   findOne(@CurrentUser('sub') userId: string, @Param('id', ParseUUIDPipe) id: string) {
     return this.transactionsService.findOne(userId, id);
