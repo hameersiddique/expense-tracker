@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThan } from 'typeorm';
+import { Repository, MoreThan, QueryFailedError } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
@@ -188,21 +188,41 @@ export class AuthService {
     } as Record<string, unknown>);
 
     const refreshExpiresIn = longLived ? '30d' : this.configService.get<string>('jwt.refreshExpiresIn');
-    const refreshToken = await this.jwtService.signAsync(payload, {
-      secret: this.configService.get<string>('jwt.refreshSecret'),
-      expiresIn: refreshExpiresIn,
-    } as Record<string, unknown>);
-
     const expiresAt = this.computeExpiry(refreshExpiresIn as string);
-    await this.refreshTokenRepository.save(
-      this.refreshTokenRepository.create({
-        userId: user.id,
-        tokenHash: this.hashToken(refreshToken),
-        expiresAt,
-        userAgent: userAgent ?? null,
-        ipAddress: ipAddress ?? null,
-      }),
-    );
+    let refreshToken: string;
+    let retries = 0;
+    const maxRetries = 5;
+
+    while (true) {
+      if (retries >= maxRetries) {
+        throw new Error('Unable to generate a unique refresh token after multiple attempts');
+      }
+
+      refreshToken = await this.jwtService.signAsync(payload, {
+        secret: this.configService.get<string>('jwt.refreshSecret'),
+        expiresIn: refreshExpiresIn,
+        jwtid: crypto.randomBytes(16).toString('hex'),
+      } as Record<string, unknown>);
+
+      try {
+        await this.refreshTokenRepository.save(
+          this.refreshTokenRepository.create({
+            userId: user.id,
+            tokenHash: this.hashToken(refreshToken),
+            expiresAt,
+            userAgent: userAgent ?? null,
+            ipAddress: ipAddress ?? null,
+          }),
+        );
+        break;
+      } catch (error) {
+        retries += 1;
+        if (error instanceof QueryFailedError && (error.driverError as { code?: string }).code === '23505') {
+          continue;
+        }
+        throw error;
+      }
+    }
 
     return { accessToken, refreshToken };
   }
