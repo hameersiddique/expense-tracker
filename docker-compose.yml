@@ -1,0 +1,68 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-expense_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-expense_pass123}
+      POSTGRES_DB: ${DB_DATABASE:-expense_tracker}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-expense_user} -d ${DB_DATABASE:-expense_tracker}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      API_PREFIX: api/v1
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: ${DB_USERNAME:-expense_user}
+      DB_PASSWORD: ${DB_PASSWORD:-expense_pass123}
+      DB_DATABASE: ${DB_DATABASE:-expense_tracker}
+      DB_SYNCHRONIZE: "false"
+      DB_LOGGING: "false"
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET is required}
+      JWT_ACCESS_EXPIRES_IN: 15m
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required}
+      JWT_REFRESH_EXPIRES_IN: 7d
+      THROTTLE_TTL: 60000
+      THROTTLE_LIMIT: 100
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+      UPLOAD_DEST: /app/uploads
+      MAX_FILE_SIZE: 5242880
+    volumes:
+      - uploads_data:/app/uploads
+    ports:
+      - "3000:3000"
+    command: sh -c "node ./node_modules/typeorm/cli.js -d dist/database/data-source.js migration:run && node dist/main"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: /api/v1
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  postgres_data:
+  uploads_data:
