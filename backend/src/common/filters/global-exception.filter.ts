@@ -32,6 +32,10 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       status = HttpStatus.BAD_REQUEST;
       message = this.parseDbError(exception);
       error = 'Database Error';
+      const driverError = exception.driverError as { code?: string; message?: string; detail?: string };
+      this.logger.error(
+        `DB error on ${request.method} ${request.url} — code=${driverError?.code} message=${driverError?.message} detail=${driverError?.detail} sql=${(exception as any).query}`,
+      );
     } else if (exception instanceof Error) {
       message = exception.message;
       error = exception.name;
