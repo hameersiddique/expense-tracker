@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import dayjs from 'dayjs';
 import { parse } from 'csv-parse/sync';
-import { Transaction, Category, TransactionType, Subcategory, PaymentMethod, Account } from '../../entities';
+import { Transaction, Category, TransactionType, Subcategory, PaymentMethod, Account, CategoryType } from '../../entities';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
 import { QueryTransactionDto } from './dto/query-transaction.dto';
@@ -264,8 +264,8 @@ export class TransactionsService {
     }
 
     // Create/ensure transfer categories for both types
-    const transferExpenseCategory = await this.ensureTransferCategory(userId, TransactionType.EXPENSE);
-    const transferIncomeCategory = await this.ensureTransferCategory(userId, TransactionType.INCOME);
+    const transferExpenseCategory = await this.ensureTransferCategory(userId, CategoryType.EXPENSE);
+    const transferIncomeCategory = await this.ensureTransferCategory(userId, CategoryType.INCOME);
 
     const dateStr = date && dayjs(date).isValid() ? dayjs(date).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD');
 
@@ -299,7 +299,7 @@ export class TransactionsService {
     return { transferred: saved.length };
   }
 
-  private async ensureTransferCategory(userId: string, type: TransactionType) {
+  private async ensureTransferCategory(userId: string, type: CategoryType) {
     const name = 'Transfer';
     const categoryRepo = this.categoriesRepository;
     const existing = await categoryRepo.findOne({ where: { userId, name, type } });

@@ -4,8 +4,6 @@ import { Repository, SelectQueryBuilder } from 'typeorm';
 import dayjs from 'dayjs';
 import isBetween from 'dayjs/plugin/isBetween';
 import { Transaction, TransactionType, Account, PaymentMethod } from '../../entities';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { DashboardQueryDto } from './dto/dashboard-query.dto';
 
 dayjs.extend(isBetween);
