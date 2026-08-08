@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Box, Typography, Paper, TextField, MenuItem, Button, Stack, Tabs, Tab, Alert } from '@mui/material';
+import { Box, Typography, Paper, TextField, MenuItem, Button, Stack, Tabs, Tab, Alert, Checkbox, FormControlLabel, FormGroup } from '@mui/material';
 import { useMutation } from '@tanstack/react-query';
 import { useAuth } from '../../auth/AuthContext';
 import { api } from '../../api/client';
+import { DASHBOARD_WIDGETS, DEFAULT_DASHBOARD_WIDGET_STATE } from '../dashboard/dashboardPreferences';
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'KWD', 'PKR', 'SAR'];
 
@@ -16,12 +17,20 @@ export default function SettingsPage() {
   const [email, setEmail] = useState(user?.email ?? '');
   const [currency, setCurrency] = useState(user?.currency ?? 'USD');
   const [theme, setTheme] = useState(user?.theme ?? 'system');
+  const [dashboardWidgets, setDashboardWidgets] = useState<Record<string, boolean>>(user?.dashboardWidgets ?? DEFAULT_DASHBOARD_WIDGET_STATE);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
   useEffect(() => {
-    if (user) { setFirstName(user.firstName); setLastName(user.lastName); setEmail(user.email); setCurrency(user.currency); setTheme(user.theme); }
+    if (user) {
+      setFirstName(user.firstName);
+      setLastName(user.lastName);
+      setEmail(user.email);
+      setCurrency(user.currency);
+      setTheme(user.theme);
+      setDashboardWidgets(user.dashboardWidgets ?? DEFAULT_DASHBOARD_WIDGET_STATE);
+    }
   }, [user]);
 
   const profileMutation = useMutation({
@@ -30,7 +39,7 @@ export default function SettingsPage() {
   });
 
   const settingsMutation = useMutation({
-    mutationFn: async () => api.patch('/users/me/settings', { currency, theme }),
+    mutationFn: async () => api.patch('/users/me/settings', { currency, theme, dashboardWidgets }),
     onSuccess: async () => { await refreshUser(); setMessage('Preferences updated'); },
   });
 
@@ -68,6 +77,26 @@ export default function SettingsPage() {
                 <MenuItem value="dark">Dark</MenuItem>
                 <MenuItem value="system">System</MenuItem>
               </TextField>
+              <Box>
+                <Typography variant="subtitle2" mb={1}>Dashboard widgets</Typography>
+                <FormGroup>
+                  {DASHBOARD_WIDGETS.map((widget) => (
+                    <FormControlLabel
+                      key={widget.key}
+                      control={(
+                        <Checkbox
+                          checked={dashboardWidgets[widget.key] ?? true}
+                          onChange={(event) => setDashboardWidgets((prev) => ({
+                            ...prev,
+                            [widget.key]: event.target.checked,
+                          }))}
+                        />
+                      )}
+                      label={widget.label}
+                    />
+                  ))}
+                </FormGroup>
+              </Box>
               <Button variant="contained" onClick={() => settingsMutation.mutate()} disabled={settingsMutation.isPending}>Save Preferences</Button>
             </Stack>
           )}

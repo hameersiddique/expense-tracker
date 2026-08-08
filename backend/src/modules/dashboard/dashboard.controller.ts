@@ -19,37 +19,37 @@ export class DashboardController {
   }
 
   @Get('charts/expenses-by-category')
-  getExpensesByCategory(@CurrentUser('sub') userId: string) {
-    return this.dashboardService.getExpensesByCategory(userId);
+  getExpensesByCategory(@CurrentUser('sub') userId: string, @Query() query: DashboardQueryDto) {
+    return this.dashboardService.getExpensesByCategory(userId, query);
   }
 
   @Get('charts/income-by-category')
-  getIncomeByCategory(@CurrentUser('sub') userId: string) {
-    return this.dashboardService.getIncomeByCategory(userId);
+  getIncomeByCategory(@CurrentUser('sub') userId: string, @Query() query: DashboardQueryDto) {
+    return this.dashboardService.getIncomeByCategory(userId, query);
   }
 
   @Get('charts/monthly-income-vs-expense')
-  getMonthlyIncomeVsExpense(@CurrentUser('sub') userId: string) {
-    return this.dashboardService.getMonthlyIncomeVsExpense(userId);
+  getMonthlyIncomeVsExpense(@CurrentUser('sub') userId: string, @Query() query: DashboardQueryDto) {
+    return this.dashboardService.getMonthlyIncomeVsExpense(userId, query);
   }
 
   @Get('charts/balance-trend')
-  getBalanceTrend(@CurrentUser('sub') userId: string) {
-    return this.dashboardService.getBalanceTrend(userId);
+  getBalanceTrend(@CurrentUser('sub') userId: string, @Query() query: DashboardQueryDto) {
+    return this.dashboardService.getBalanceTrend(userId, query);
   }
 
   @Get('charts/savings-trend')
-  getSavingsTrend(@CurrentUser('sub') userId: string) {
-    return this.dashboardService.getSavingsTrend(userId);
+  getSavingsTrend(@CurrentUser('sub') userId: string, @Query() query: DashboardQueryDto) {
+    return this.dashboardService.getSavingsTrend(userId, query);
   }
 
   @Get('charts/payment-methods')
-  getPaymentMethodBreakdown(@CurrentUser('sub') userId: string) {
-    return this.dashboardService.getPaymentMethodBreakdown(userId);
+  getPaymentMethodBreakdown(@CurrentUser('sub') userId: string, @Query() query: DashboardQueryDto) {
+    return this.dashboardService.getPaymentMethodBreakdown(userId, query);
   }
 
   @Get('recent-transactions')
-  getRecentTransactions(@CurrentUser('sub') userId: string) {
-    return this.dashboardService.getRecentTransactions(userId);
+  getRecentTransactions(@CurrentUser('sub') userId: string, @Query() query: DashboardQueryDto) {
+    return this.dashboardService.getRecentTransactions(userId, query);
   }
 }

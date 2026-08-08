@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, MaxLength, IsEnum } from 'class-validator';
+import { IsString, IsOptional, MaxLength, IsEnum, IsObject } from 'class-validator';
 import { ThemePreference } from '../../../entities';
 
 export class UpdateSettingsDto {
@@ -7,4 +7,5 @@ export class UpdateSettingsDto {
   @ApiPropertyOptional({ example: 'en' }) @IsOptional() @IsString() @MaxLength(10) language?: string;
   @ApiPropertyOptional({ example: 'Asia/Kuwait' }) @IsOptional() @IsString() @MaxLength(100) timezone?: string;
   @ApiPropertyOptional({ enum: ThemePreference }) @IsOptional() @IsEnum(ThemePreference) theme?: ThemePreference;
+  @ApiPropertyOptional({ example: { expensesByCategory: true } }) @IsOptional() @IsObject() dashboardWidgets?: Record<string, boolean>;
 }

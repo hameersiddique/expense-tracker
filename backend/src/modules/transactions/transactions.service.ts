@@ -40,8 +40,8 @@ export class TransactionsService {
     if (query.subcategoryId) qb.andWhere('t.subcategoryId = :subcategoryId', { subcategoryId: query.subcategoryId });
     if (query.paymentMethodId) qb.andWhere('t.paymentMethodId = :paymentMethodId', { paymentMethodId: query.paymentMethodId });
     if (query.accountId) qb.andWhere('t.accountId = :accountId', { accountId: query.accountId });
-    if (query.dateFrom) qb.andWhere('t.date >= :dateFrom', { dateFrom: query.dateFrom });
-    if (query.dateTo) qb.andWhere('t.date <= :dateTo', { dateTo: query.dateTo });
+    if (query.dateFrom) qb.andWhere('t.date >= :dateFrom', { dateFrom: this.normalizeDateStart(query.dateFrom) });
+    if (query.dateTo) qb.andWhere('t.date <= :dateTo', { dateTo: this.normalizeDateEnd(query.dateTo) });
     if (query.amountMin !== undefined) qb.andWhere('t.amount >= :amountMin', { amountMin: query.amountMin });
     if (query.amountMax !== undefined) qb.andWhere('t.amount <= :amountMax', { amountMax: query.amountMax });
     if (query.search) {
@@ -69,9 +69,15 @@ export class TransactionsService {
   async create(userId: string, dto: CreateTransactionDto): Promise<Transaction> {
     await this.validateCategoryOwnership(userId, dto.categoryId, dto.type);
     const transaction = this.transactionsRepository.create({
-      userId, type: dto.type, amount: dto.amount.toFixed(2), categoryId: dto.categoryId,
-      subcategoryId: dto.subcategoryId ?? null, date: dto.date, paymentMethodId: dto.paymentMethodId ?? null,
-      accountId: dto.accountId ?? null, notes: dto.notes ?? null,
+      userId,
+      type: dto.type,
+      amount: dto.amount.toFixed(2),
+      categoryId: dto.categoryId,
+      subcategoryId: dto.subcategoryId ?? null,
+      date: this.normalizeTransactionDate(dto.date, dto.time),
+      paymentMethodId: dto.paymentMethodId ?? null,
+      accountId: dto.accountId ?? null,
+      notes: dto.notes ?? null,
     });
     const saved = await this.transactionsRepository.save(transaction);
     return this.findOne(userId, saved.id);
@@ -80,7 +86,15 @@ export class TransactionsService {
   async update(userId: string, id: string, dto: UpdateTransactionDto): Promise<Transaction> {
     const transaction = await this.findOne(userId, id);
     if (dto.categoryId) await this.validateCategoryOwnership(userId, dto.categoryId, dto.type ?? transaction.type);
-    Object.assign(transaction, { ...dto, amount: dto.amount !== undefined ? dto.amount.toFixed(2) : transaction.amount });
+
+    const updatedData = { ...dto } as Partial<Transaction>;
+    if (dto.amount !== undefined) updatedData.amount = dto.amount.toFixed(2);
+    if (dto.date || dto.time) {
+      updatedData.date = this.normalizeTransactionDate(dto.date ?? transaction.date, dto.time, transaction.date);
+    }
+    delete (updatedData as any).time;
+
+    Object.assign(transaction, updatedData);
     await this.transactionsRepository.save(transaction);
     return this.findOne(userId, id);
   }
@@ -132,8 +146,8 @@ export class TransactionsService {
 
     if (query.type) qb.andWhere('t.type = :type', { type: query.type });
     if (query.categoryId) qb.andWhere('t.categoryId = :categoryId', { categoryId: query.categoryId });
-    if (query.dateFrom) qb.andWhere('t.date >= :dateFrom', { dateFrom: query.dateFrom });
-    if (query.dateTo) qb.andWhere('t.date <= :dateTo', { dateTo: query.dateTo });
+    if (query.dateFrom) qb.andWhere('t.date >= :dateFrom', { dateFrom: this.normalizeDateStart(query.dateFrom) });
+    if (query.dateTo) qb.andWhere('t.date <= :dateTo', { dateTo: this.normalizeDateEnd(query.dateTo) });
 
     const transactions = await qb.getMany();
     const columns: ExportColumn[] = [
@@ -199,6 +213,30 @@ export class TransactionsService {
     }
 
     return { imported, failed: errors.length, errors };
+  }
+
+  private normalizeTransactionDate(dateValue: string, timeValue?: string, originalDate?: string): string {
+    const baseDate = dayjs(dateValue || originalDate);
+    if (!baseDate.isValid()) return dateValue;
+    if (timeValue) {
+      return dayjs(`${baseDate.format('YYYY-MM-DD')}T${timeValue}:00`).toISOString();
+    }
+    if (dateValue && !originalDate) {
+      return baseDate.startOf('day').toISOString();
+    }
+    return originalDate ?? baseDate.startOf('day').toISOString();
+  }
+
+  private normalizeDateStart(value: string): string {
+    const parsed = dayjs(value);
+    if (!parsed.isValid()) return value;
+    return parsed.startOf('day').toISOString();
+  }
+
+  private normalizeDateEnd(value: string): string {
+    const parsed = dayjs(value);
+    if (!parsed.isValid()) return value;
+    return parsed.endOf('day').toISOString();
   }
 
   private async validateCategoryOwnership(userId: string, categoryId: string, type: TransactionType): Promise<void> {

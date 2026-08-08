@@ -27,7 +27,7 @@ export class Transaction {
   @Column({ name: 'subcategory_id', nullable: true, type: 'uuid' }) subcategoryId: string | null;
   @ManyToOne(() => Subcategory, (s) => s.transactions, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'subcategory_id' }) subcategory: Subcategory | null;
-  @Column({ type: 'date' }) date: string;
+  @Column({ type: 'timestamptz' }) date: string;
   @Column({ name: 'payment_method_id', nullable: true, type: 'uuid' }) paymentMethodId: string | null;
   @ManyToOne(() => PaymentMethod, (p) => p.transactions, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'payment_method_id' }) paymentMethod: PaymentMethod | null;

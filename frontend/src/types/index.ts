@@ -7,6 +7,7 @@ export interface User {
   language: string;
   timezone: string;
   theme: 'light' | 'dark' | 'system';
+  dashboardWidgets?: Record<string, boolean>;
   profilePictureUrl: string | null;
 }
 

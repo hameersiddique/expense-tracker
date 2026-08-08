@@ -16,6 +16,7 @@ const schema = z.object({
   categoryId: z.string().uuid('Select a category'),
   subcategoryId: z.string().optional(),
   date: z.string().min(1, 'Date is required'),
+  time: z.string().optional(),
   paymentMethodId: z.string().optional(),
   accountId: z.string().optional(),
   notes: z.string().max(1000).optional(),
@@ -36,7 +37,8 @@ export default function TransactionFormDialog({
       amount: editing ? Number(editing.amount) : undefined,
       categoryId: editing?.categoryId ?? '',
       subcategoryId: editing?.subcategoryId ?? '',
-      date: editing?.date ?? dayjs().format('YYYY-MM-DD'),
+      date: editing?.date ? dayjs(editing.date).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
+      time: editing?.date ? dayjs(editing.date).format('HH:mm') : '',
       paymentMethodId: editing?.paymentMethodId ?? '',
       accountId: editing?.accountId ?? '',
       notes: editing?.notes ?? '',
@@ -49,7 +51,8 @@ export default function TransactionFormDialog({
       amount: editing ? Number(editing.amount) : undefined,
       categoryId: editing?.categoryId ?? '',
       subcategoryId: editing?.subcategoryId ?? '',
-      date: editing?.date ?? dayjs().format('YYYY-MM-DD'),
+      date: editing?.date ? dayjs(editing.date).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
+      time: editing?.date ? dayjs(editing.date).format('HH:mm') : '',
       paymentMethodId: editing?.paymentMethodId ?? '',
       accountId: editing?.accountId ?? '',
       notes: editing?.notes ?? '',
@@ -118,6 +121,7 @@ export default function TransactionFormDialog({
             </TextField>
           )}
           <TextField label="Date" type="date" fullWidth InputLabelProps={{ shrink: true }} {...register('date')} error={!!errors.date} helperText={errors.date?.message} />
+          <TextField label="Time (optional)" type="time" fullWidth InputLabelProps={{ shrink: true }} {...register('time')} error={!!errors.time} helperText={errors.time?.message} />
           <TextField select label="Payment Method (optional)" fullWidth {...register('paymentMethodId')} defaultValue={editing?.paymentMethodId ?? ''}>
             <MenuItem value="">None</MenuItem>
             {(paymentMethodsQuery.data ?? []).map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}

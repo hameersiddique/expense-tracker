@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, SelectQueryBuilder } from 'typeorm';
 import dayjs from 'dayjs';
 import isBetween from 'dayjs/plugin/isBetween';
 import { Transaction, TransactionType } from '../../entities';
@@ -13,28 +13,21 @@ export class DashboardService {
   constructor(@InjectRepository(Transaction) private transactionsRepository: Repository<Transaction>) {}
 
   async getSummaryCards(userId: string, query: DashboardQueryDto) {
-    const all = await this.transactionsRepository.find({ where: { userId } });
+    const all = await this.getTransactionsForUser(userId, query);
 
     const totalIncome = this.sumByType(all, TransactionType.INCOME);
     const totalExpense = this.sumByType(all, TransactionType.EXPENSE);
     const totalBalance = totalIncome - totalExpense;
 
-    const startOfMonth = dayjs().startOf('month');
-    const endOfMonth = dayjs().endOf('month');
-    const thisMonth = all.filter((t) => dayjs(t.date).isBetween(startOfMonth, endOfMonth, 'day', '[]'));
-    const thisMonthIncome = this.sumByType(thisMonth, TransactionType.INCOME);
-    const thisMonthExpense = this.sumByType(thisMonth, TransactionType.EXPENSE);
-    const monthlySaving = thisMonthIncome - thisMonthExpense;
+    const start = query.dateFrom ? dayjs(query.dateFrom) : (all.length ? dayjs(all.reduce((min, t) => (dayjs(t.date).isBefore(min) ? t.date : min), all[0].date)) : dayjs());
+    const end = query.dateTo ? dayjs(query.dateTo) : (all.length ? dayjs(all.reduce((max, t) => (dayjs(t.date).isAfter(max) ? t.date : max), all[0].date)) : dayjs());
+
+    const rangeDays = Math.max(end.diff(start, 'day') + 1, 1);
+    const rangeMonths = this.getDistinctMonthCount(all) || 1;
 
     const expenseTransactions = all.filter((t) => t.type === TransactionType.EXPENSE);
     const incomeTransactions = all.filter((t) => t.type === TransactionType.INCOME);
-
-    const daysElapsedThisMonth = dayjs().date();
-    const avgDailyExpense = daysElapsedThisMonth > 0 ? thisMonthExpense / daysElapsedThisMonth : 0;
-
-    const monthsSpan = this.getDistinctMonthCount(all) || 1;
-    const avgMonthlyExpense = totalExpense / monthsSpan;
-
+    const monthlySaving = totalIncome - totalExpense;
     const largestExpense = expenseTransactions.reduce((max, t) => (Number(t.amount) > max ? Number(t.amount) : max), 0);
     const largestIncome = incomeTransactions.reduce((max, t) => (Number(t.amount) > max ? Number(t.amount) : max), 0);
 
@@ -43,54 +36,56 @@ export class DashboardService {
       totalIncome: this.round(totalIncome),
       totalExpense: this.round(totalExpense),
       monthlySaving: this.round(monthlySaving),
-      thisMonthIncome: this.round(thisMonthIncome),
-      thisMonthExpense: this.round(thisMonthExpense),
-      averageDailyExpense: this.round(avgDailyExpense),
-      averageMonthlyExpense: this.round(avgMonthlyExpense),
+      thisMonthIncome: this.round(totalIncome),
+      thisMonthExpense: this.round(totalExpense),
+      averageDailyExpense: this.round(totalExpense / rangeDays),
+      averageMonthlyExpense: this.round(totalExpense / rangeMonths),
       largestExpense: this.round(largestExpense),
       largestIncome: this.round(largestIncome),
     };
   }
 
-  async getExpensesByCategory(userId: string) {
-    const rows = await this.transactionsRepository
+  async getExpensesByCategory(userId: string, query: DashboardQueryDto) {
+    const qb = this.transactionsRepository
       .createQueryBuilder('t')
       .leftJoin('t.category', 'category')
       .select('category.name', 'name')
       .addSelect('SUM(t.amount)', 'value')
       .where('t.userId = :userId', { userId })
-      .andWhere('t.type = :type', { type: TransactionType.EXPENSE })
-      .groupBy('category.name')
-      .orderBy('value', 'DESC')
-      .getRawMany();
+      .andWhere('t.type = :type', { type: TransactionType.EXPENSE });
+
+    this.applyDateFilter(qb, query);
+
+    const rows = await qb.groupBy('category.name').orderBy('value', 'DESC').getRawMany();
     return rows.map((r) => ({ name: r.name, value: Number(r.value) }));
   }
 
-  async getIncomeByCategory(userId: string) {
-    const rows = await this.transactionsRepository
+  async getIncomeByCategory(userId: string, query: DashboardQueryDto) {
+    const qb = this.transactionsRepository
       .createQueryBuilder('t')
       .leftJoin('t.category', 'category')
       .select('category.name', 'name')
       .addSelect('SUM(t.amount)', 'value')
       .where('t.userId = :userId', { userId })
-      .andWhere('t.type = :type', { type: TransactionType.INCOME })
-      .groupBy('category.name')
-      .orderBy('value', 'DESC')
-      .getRawMany();
+      .andWhere('t.type = :type', { type: TransactionType.INCOME });
+
+    this.applyDateFilter(qb, query);
+
+    const rows = await qb.groupBy('category.name').orderBy('value', 'DESC').getRawMany();
     return rows.map((r) => ({ name: r.name, value: Number(r.value) }));
   }
 
-  async getMonthlyIncomeVsExpense(userId: string) {
-    const rows = await this.transactionsRepository
+  async getMonthlyIncomeVsExpense(userId: string, query: DashboardQueryDto) {
+    const qb = this.transactionsRepository
       .createQueryBuilder('t')
       .select("to_char(t.date, 'YYYY-MM')", 'month')
       .addSelect('t.type', 'type')
       .addSelect('SUM(t.amount)', 'total')
-      .where('t.userId = :userId', { userId })
-      .groupBy('month')
-      .addGroupBy('t.type')
-      .orderBy('month', 'ASC')
-      .getRawMany();
+      .where('t.userId = :userId', { userId });
+
+    this.applyDateFilter(qb, query);
+
+    const rows = await qb.groupBy('month').addGroupBy('t.type').orderBy('month', 'ASC').getRawMany();
 
     const map = new Map<string, { month: string; income: number; expense: number }>();
     rows.forEach((r) => {
@@ -102,8 +97,8 @@ export class DashboardService {
     return Array.from(map.values());
   }
 
-  async getBalanceTrend(userId: string) {
-    const monthly = await this.getMonthlyIncomeVsExpense(userId);
+  async getBalanceTrend(userId: string, query: DashboardQueryDto) {
+    const monthly = await this.getMonthlyIncomeVsExpense(userId, query);
     let runningBalance = 0;
     return monthly.map((m) => {
       runningBalance += m.income - m.expense;
@@ -111,32 +106,49 @@ export class DashboardService {
     });
   }
 
-  async getSavingsTrend(userId: string) {
-    const monthly = await this.getMonthlyIncomeVsExpense(userId);
+  async getSavingsTrend(userId: string, query: DashboardQueryDto) {
+    const monthly = await this.getMonthlyIncomeVsExpense(userId, query);
     return monthly.map((m) => ({ month: m.month, savings: this.round(m.income - m.expense) }));
   }
 
-  async getPaymentMethodBreakdown(userId: string) {
-    const rows = await this.transactionsRepository
+  async getPaymentMethodBreakdown(userId: string, query: DashboardQueryDto) {
+    const qb = this.transactionsRepository
       .createQueryBuilder('t')
       .leftJoin('t.paymentMethod', 'pm')
       .select('pm.name', 'name')
       .addSelect('SUM(t.amount)', 'value')
       .where('t.userId = :userId', { userId })
-      .andWhere('pm.id IS NOT NULL')
-      .groupBy('pm.name')
-      .orderBy('value', 'DESC')
-      .getRawMany();
+      .andWhere('pm.id IS NOT NULL');
+
+    this.applyDateFilter(qb, query);
+
+    const rows = await qb.groupBy('pm.name').orderBy('value', 'DESC').getRawMany();
     return rows.map((r) => ({ name: r.name, value: Number(r.value) }));
   }
 
-  async getRecentTransactions(userId: string, limit = 10) {
-    return this.transactionsRepository.find({
-      where: { userId },
-      relations: ['category', 'subcategory', 'paymentMethod'],
-      order: { date: 'DESC', createdAt: 'DESC' },
-      take: limit,
-    });
+  async getRecentTransactions(userId: string, query: DashboardQueryDto, limit = 10) {
+    const qb = this.transactionsRepository
+      .createQueryBuilder('t')
+      .leftJoinAndSelect('t.category', 'category')
+      .leftJoinAndSelect('t.subcategory', 'subcategory')
+      .leftJoinAndSelect('t.paymentMethod', 'paymentMethod')
+      .where('t.userId = :userId', { userId });
+
+    this.applyDateFilter(qb, query);
+
+    return qb.orderBy('t.date', 'DESC').addOrderBy('t.createdAt', 'DESC').take(limit).getMany();
+  }
+
+  private async getTransactionsForUser(userId: string, query: DashboardQueryDto): Promise<Transaction[]> {
+    const qb = this.transactionsRepository.createQueryBuilder('t').where('t.userId = :userId', { userId });
+    this.applyDateFilter(qb, query);
+    return qb.getMany();
+  }
+
+  private applyDateFilter(qb: SelectQueryBuilder<Transaction>, query: DashboardQueryDto) {
+    if (query.dateFrom) qb.andWhere('t.date >= :dateFrom', { dateFrom: query.dateFrom });
+    if (query.dateTo) qb.andWhere('t.date <= :dateTo', { dateTo: query.dateTo });
+    return qb;
   }
 
   private sumByType(transactions: Transaction[], type: TransactionType): number {
