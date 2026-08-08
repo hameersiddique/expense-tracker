@@ -135,10 +135,8 @@ export default function DashboardPage() {
   const { summary, expensesByCategory, incomeByCategory, monthly, balanceTrend, savingsTrend, paymentMethods, recent } = useDashboardData(params);
   const s = summary.data;
 
-  const netCashFlowData = useMemo(() => (monthly.data ?? []).map((item) => ({ month: item.month, net: item.income - item.expense })), [monthly.data]);
+  const netCashFlowData = useMemo(() => (monthly.data ?? []).map((item: { month: string; income: number; expense: number }) => ({ month: item.month, net: item.income - item.expense })), [monthly.data]);
   const topExpenseCategories = useMemo(() => (expensesByCategory.data ?? []).slice(0, 5), [expensesByCategory.data]);
-
-  const isFilterActive = Boolean(dateFrom || dateTo);
 
   return (
     <Box>
