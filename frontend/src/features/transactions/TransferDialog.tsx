@@ -78,8 +78,8 @@ export default function TransferDialog({ open, onClose }: { open: boolean; onClo
     }
     mutation.mutate({
       ...values,
-      fromAccountId: from,
-      toAccountId: to,
+      fromAccountId: from ?? undefined,
+      toAccountId: to ?? undefined,
     });
   };
 
