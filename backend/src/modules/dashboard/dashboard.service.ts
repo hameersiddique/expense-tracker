@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 import dayjs from 'dayjs';
 import isBetween from 'dayjs/plugin/isBetween';
-import { Transaction, TransactionType, Account, PaymentMethod } from '../../entities';
+import { Transaction, TransactionType, Account, PaymentMethod, PaymentMethodType } from '../../entities';
 import { DashboardQueryDto } from './dto/dashboard-query.dto';
 
 dayjs.extend(isBetween);
@@ -135,7 +135,12 @@ export class DashboardService {
     const accounts = await this.accountsRepository.find({ where: { userId } });
 
     const accountBalances = await Promise.all(accounts.map(async (a) => {
-      const qb = this.transactionsRepository.createQueryBuilder('t').select('SUM(CASE WHEN t.type = :inc THEN t.amount ELSE -t.amount END)', 'balance').where('t.userId = :userId', { userId }).andWhere('t.accountId = :accountId', { accountId: a.id }).setParameter('inc', TransactionType.INCOME);
+      const qb = this.transactionsRepository
+        .createQueryBuilder('t')
+        .select('SUM(CASE WHEN t.type = :inc THEN t.amount ELSE -t.amount END)', 'balance')
+        .where('t.userId = :userId', { userId })
+        .andWhere('t.accountId = :accountId', { accountId: a.id })
+        .setParameter('inc', TransactionType.INCOME);
       const row = await qb.getRawOne();
       const txBalance = Number(row?.balance ?? 0);
       const initial = Number(a.initialBalance ?? 0);
@@ -143,13 +148,20 @@ export class DashboardService {
     }));
 
     // Cash balance: sum of transactions where payment method is cash OR payment method is null
-    const cashPmIds = (await this.paymentMethodsRepository.find({ where: { userId, type: 'cash' as any } })).map((p) => p.id);
-    const qb = this.transactionsRepository.createQueryBuilder('t').select('SUM(CASE WHEN t.type = :inc THEN t.amount ELSE -t.amount END)', 'balance').where('t.userId = :userId', { userId }).andWhere(new String(`(t.payment_method_id IS NULL OR t.payment_method_id IN (${cashPmIds.map((_, i) => `:pm${i}`).join(',')}))`));
-    const params: Record<string, unknown> = { userId, inc: TransactionType.INCOME };
-    cashPmIds.forEach((id, i) => { (params as any)[`pm${i}`] = id; });
-    qb.setParameters(params);
-    qb.setParameter('inc', TransactionType.INCOME);
-    const cashRow = await qb.getRawOne();
+    const cashPmIds = (await this.paymentMethodsRepository.find({ where: { userId, type: PaymentMethodType.CASH } })).map((p) => p.id);
+    const cashBalanceQuery = this.transactionsRepository
+      .createQueryBuilder('t')
+      .select('SUM(CASE WHEN t.type = :inc THEN t.amount ELSE -t.amount END)', 'balance')
+      .where('t.userId = :userId', { userId })
+      .setParameter('inc', TransactionType.INCOME);
+
+    if (cashPmIds.length > 0) {
+      cashBalanceQuery.andWhere('t.payment_method_id IS NULL OR t.payment_method_id IN (:...cashPmIds)', { cashPmIds });
+    } else {
+      cashBalanceQuery.andWhere('t.payment_method_id IS NULL');
+    }
+
+    const cashRow = await cashBalanceQuery.getRawOne();
     const cashBalance = Math.round((Number(cashRow?.balance ?? 0)) * 100) / 100;
 
     return { cashBalance, accounts: accountBalances };

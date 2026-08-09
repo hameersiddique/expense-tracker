@@ -90,3 +90,12 @@ export interface DashboardSummary {
   largestExpense: number;
   largestIncome: number;
 }
+
+export interface DashboardBalance {
+  cashBalance: number;
+  accounts: {
+    accountId: string;
+    name: string;
+    balance: number;
+  }[];
+}

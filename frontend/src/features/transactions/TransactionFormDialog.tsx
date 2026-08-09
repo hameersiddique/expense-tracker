@@ -30,7 +30,7 @@ export default function TransactionFormDialog({
   const queryClient = useQueryClient();
   const [type, setType] = useState<'income' | 'expense'>(editing?.type ?? 'expense');
 
-  const { control, register, handleSubmit, watch, reset, formState: { errors } } = useForm<FormValues, any, FormOutput>({
+  const { control, register, handleSubmit, watch, reset, setError, formState: { errors } } = useForm<FormValues, any, FormOutput>({
     resolver: zodResolver(schema),
     defaultValues: {
       type: editing?.type ?? 'expense',
@@ -74,7 +74,10 @@ export default function TransactionFormDialog({
   });
 
   const selectedCategoryId = watch('categoryId');
+  const selectedPaymentMethodId = watch('paymentMethodId');
   const selectedCategory = categoriesQuery.data?.find((c) => c.id === selectedCategoryId);
+  const selectedPaymentMethod = paymentMethodsQuery.data?.find((p) => p.id === selectedPaymentMethodId);
+  const requiresAccount = selectedPaymentMethod?.type !== 'cash';
   const filteredCategories = (categoriesQuery.data ?? []).filter((c) => c.type === type);
 
   const mutation = useMutation({
@@ -90,7 +93,13 @@ export default function TransactionFormDialog({
     },
   });
 
-  const onSubmit = (values: FormOutput) => mutation.mutate(values);
+  const onSubmit = (values: FormOutput) => {
+    if (selectedPaymentMethod && selectedPaymentMethod.type !== 'cash' && !values.accountId) {
+      setError('accountId', { type: 'manual', message: 'Account is required for non-cash payment methods' });
+      return;
+    }
+    mutation.mutate(values);
+  };
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
@@ -126,10 +135,20 @@ export default function TransactionFormDialog({
             <MenuItem value="">None</MenuItem>
             {(paymentMethodsQuery.data ?? []).map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
           </TextField>
-          <TextField select label="Account (optional)" fullWidth {...register('accountId')} defaultValue={editing?.accountId ?? ''}>
-            <MenuItem value="">None</MenuItem>
-            {(accountsQuery.data ?? []).map((a) => <MenuItem key={a.id} value={a.id}>{a.name}</MenuItem>)}
-          </TextField>
+          {selectedPaymentMethod && selectedPaymentMethod.type !== 'cash' && (
+            <TextField
+              select
+              label="Account"
+              fullWidth
+              {...register('accountId')}
+              defaultValue={editing?.accountId ?? ''}
+              error={!!errors.accountId}
+              helperText={errors.accountId?.message ?? 'Choose the bank account used for this payment method.'}
+            >
+              <MenuItem value="">None</MenuItem>
+              {(accountsQuery.data ?? []).map((a) => <MenuItem key={a.id} value={a.id}>{a.name}</MenuItem>)}
+            </TextField>
+          )}
           <TextField label="Notes (optional)" fullWidth multiline rows={2} {...register('notes')} />
         </Stack>
       </DialogContent>

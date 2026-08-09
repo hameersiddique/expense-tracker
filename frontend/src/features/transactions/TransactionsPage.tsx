@@ -14,6 +14,7 @@ import UploadIcon from '@mui/icons-material/Upload';
 import { api } from '../../api/client';
 import type { PaginatedResult, Transaction, Category } from '../../types';
 import TransactionFormDialog from './TransactionFormDialog';
+import TransferDialog from './TransferDialog';
 
 export default function TransactionsPage() {
   const queryClient = useQueryClient();
@@ -24,6 +25,7 @@ export default function TransactionsPage() {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [formOpen, setFormOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | 'bulk' | null>(null);
   const [exportMenuAnchor, setExportMenuAnchor] = useState<null | HTMLElement>(null);
@@ -117,6 +119,9 @@ export default function TransactionsPage() {
             <MenuItem onClick={() => handleExport('excel')}>Excel</MenuItem>
             <MenuItem onClick={() => handleExport('pdf')}>PDF</MenuItem>
           </Menu>
+          <Button variant="outlined" onClick={() => setTransferOpen(true)}>
+            Transfer
+          </Button>
           <Button startIcon={<AddIcon />} variant="contained" onClick={() => { setEditing(null); setFormOpen(true); }}>
             Add Transaction
           </Button>
@@ -197,6 +202,7 @@ export default function TransactionsPage() {
       </TableContainer>
 
       <TransactionFormDialog open={formOpen} onClose={() => setFormOpen(false)} editing={editing} />
+      <TransferDialog open={transferOpen} onClose={() => setTransferOpen(false)} />
 
       <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
         <DialogTitle>Confirm Delete</DialogTitle>
