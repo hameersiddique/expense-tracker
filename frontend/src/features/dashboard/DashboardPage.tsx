@@ -166,6 +166,33 @@ export default function DashboardPage() {
       </Box>
 
       <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+        <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} gap={2} mb={2}>
+          <Box>
+            <Typography variant="subtitle1" fontWeight={600}>All-time balances</Typography>
+            <Typography variant="body2" color="text.secondary">Balances are shown for cash and each bank account, independent of the selected date range.</Typography>
+          </Box>
+          <Button variant="outlined" onClick={() => setTransferOpen(true)}>
+            Transfer funds
+          </Button>
+        </Box>
+        <Grid container spacing={2}>
+          <Grid item xs={12} sm={4} md={3}>
+            <SummaryCard label="Cash balance" value={balancesQuery.isLoading ? 0 : b?.cashBalance ?? 0} icon={<AccountBalanceWalletIcon />} color="#1d4ed8" />
+          </Grid>
+          {(b?.accounts ?? []).map((account) => (
+            <Grid item xs={12} sm={4} md={3} key={account.accountId}>
+              <SummaryCard label={account.name} value={account.balance} icon={<AccountBalanceWalletIcon />} color="#0f766e" />
+            </Grid>
+          ))}
+          {balancesQuery.isSuccess && b?.accounts.length === 0 && (
+            <Grid item xs={12}>
+              <Typography variant="body2" color="text.secondary">No bank accounts added yet. Add accounts in settings to track bank balances.</Typography>
+            </Grid>
+          )}
+        </Grid>
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
         <Stack spacing={2} mb={2}>
           <ToggleButtonGroup value={period} exclusive onChange={handlePeriodChange} size="small">
             <ToggleButton value="all">All time</ToggleButton>
@@ -200,25 +227,6 @@ export default function DashboardPage() {
             Showing {dateFrom || 'the earliest transaction'} to {dateTo || 'the latest transaction'}.
           </Typography>
         )}
-      </Paper>
-
-      <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
-        <Typography variant="subtitle1" fontWeight={600} mb={2}>All-time balances</Typography>
-        <Grid container spacing={2}>
-          <Grid item xs={12} sm={4} md={3}>
-            <SummaryCard label="Cash balance" value={balancesQuery.isLoading ? 0 : b?.cashBalance ?? 0} icon={<AccountBalanceWalletIcon />} color="#1d4ed8" />
-          </Grid>
-          {(b?.accounts ?? []).map((account) => (
-            <Grid item xs={12} sm={4} md={3} key={account.accountId}>
-              <SummaryCard label={account.name} value={account.balance} icon={<AccountBalanceWalletIcon />} color="#0f766e" />
-            </Grid>
-          ))}
-          {balancesQuery.isSuccess && b?.accounts.length === 0 && (
-            <Grid item xs={12}>
-              <Typography variant="body2" color="text.secondary">No bank accounts added yet. Add accounts in settings to track bank balances.</Typography>
-            </Grid>
-          )}
-        </Grid>
       </Paper>
 
       <TransferDialog open={transferOpen} onClose={() => setTransferOpen(false)} />
