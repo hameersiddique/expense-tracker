@@ -14,8 +14,9 @@ import {
 } from 'recharts';
 import { useAuth } from '../../auth/AuthContext';
 import { api } from '../../api/client';
-import type { DashboardSummary, Transaction } from '../../types';
+import type { DashboardSummary, DashboardBalance, Transaction } from '../../types';
 import TransactionFormDialog from '../transactions/TransactionFormDialog';
+import TransferDialog from '../transactions/TransferDialog';
 import { DEFAULT_DASHBOARD_WIDGET_STATE } from './dashboardPreferences';
 
 const COLORS = ['#2563eb', '#16a34a', '#ef6c00', '#ad1457', '#6a1b9a', '#00838f', '#c62828', '#558b2f', '#4527a0', '#bf360c'];
@@ -76,6 +77,7 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
   const today = new Date();
   const todayString = today.toISOString().slice(0, 10);
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
@@ -132,8 +134,14 @@ export default function DashboardPage() {
     setPeriod('custom');
   };
 
+  const balancesQuery = useQuery({
+    queryKey: ['dashboard', 'balances'],
+    queryFn: async () => (await api.get<{ data: DashboardBalance }>('/dashboard/balances')).data.data,
+  });
+
   const { summary, expensesByCategory, incomeByCategory, monthly, balanceTrend, savingsTrend, paymentMethods, recent } = useDashboardData(params);
   const s = summary.data;
+  const b = balancesQuery.data;
 
   const netCashFlowData = useMemo(() => (monthly.data ?? []).map((item: { month: string; income: number; expense: number }) => ({ month: item.month, net: item.income - item.expense })), [monthly.data]);
   const topExpenseCategories = useMemo(() => (expensesByCategory.data ?? []).slice(0, 5), [expensesByCategory.data]);
@@ -147,9 +155,14 @@ export default function DashboardPage() {
             Apply a date range to filter all dashboard values, charts and recent transactions.
           </Typography>
         </Box>
-        <Button variant="contained" onClick={() => setQuickAddOpen(true)}>
-          Quick add expense
-        </Button>
+        <Stack direction="row" spacing={1} flexWrap="wrap">
+          <Button variant="outlined" onClick={() => setTransferOpen(true)}>
+            Transfer funds
+          </Button>
+          <Button variant="contained" onClick={() => setQuickAddOpen(true)}>
+            Quick add expense
+          </Button>
+        </Stack>
       </Box>
 
       <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
@@ -188,6 +201,27 @@ export default function DashboardPage() {
           </Typography>
         )}
       </Paper>
+
+      <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+        <Typography variant="subtitle1" fontWeight={600} mb={2}>All-time balances</Typography>
+        <Grid container spacing={2}>
+          <Grid item xs={12} sm={4} md={3}>
+            <SummaryCard label="Cash balance" value={balancesQuery.isLoading ? 0 : b?.cashBalance ?? 0} icon={<AccountBalanceWalletIcon />} color="#1d4ed8" />
+          </Grid>
+          {(b?.accounts ?? []).map((account) => (
+            <Grid item xs={12} sm={4} md={3} key={account.accountId}>
+              <SummaryCard label={account.name} value={account.balance} icon={<AccountBalanceWalletIcon />} color="#0f766e" />
+            </Grid>
+          ))}
+          {balancesQuery.isSuccess && b?.accounts.length === 0 && (
+            <Grid item xs={12}>
+              <Typography variant="body2" color="text.secondary">No bank accounts added yet. Add accounts in settings to track bank balances.</Typography>
+            </Grid>
+          )}
+        </Grid>
+      </Paper>
+
+      <TransferDialog open={transferOpen} onClose={() => setTransferOpen(false)} />
 
       <Grid container spacing={2} mb={3}>
         {summary.isLoading || !s ? (
