@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsNumber, IsUUID, IsDateString, IsOptional, IsString, Min, MaxLength, Matches } from 'class-validator';
+import { IsEnum, IsNumber, IsUUID, IsDateString, IsOptional, IsString, Min, MaxLength, Matches, ValidateIf } from 'class-validator';
 import { TransactionType } from '../../../entities';
 
 export class CreateTransactionDto {

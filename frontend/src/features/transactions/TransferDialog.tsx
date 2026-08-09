@@ -70,13 +70,17 @@ export default function TransferDialog({ open, onClose }: { open: boolean; onClo
   });
 
   const onSubmit = (values: FormValues) => {
-    const from = values.fromAccountId || null;
-    const to = values.toAccountId || null;
+    const from = values.fromAccountId === 'cash' ? null : values.fromAccountId || null;
+    const to = values.toAccountId === 'cash' ? null : values.toAccountId || null;
     if (from === to) {
       setError('toAccountId', { type: 'manual', message: 'Source and destination must differ' });
       return;
     }
-    mutation.mutate(values);
+    mutation.mutate({
+      ...values,
+      fromAccountId: from,
+      toAccountId: to,
+    });
   };
 
   return (
@@ -96,7 +100,7 @@ export default function TransferDialog({ open, onClose }: { open: boolean; onClo
             error={!!errors.fromAccountId}
             helperText={errors.fromAccountId?.message}
           >
-            <MenuItem value="">Cash</MenuItem>
+            <MenuItem value="cash">Cash</MenuItem>
             {(accountsQuery.data ?? []).map((account) => (
               <MenuItem key={account.id} value={account.id}>{account.name}</MenuItem>
             ))}
@@ -110,7 +114,7 @@ export default function TransferDialog({ open, onClose }: { open: boolean; onClo
             error={!!errors.toAccountId}
             helperText={errors.toAccountId?.message}
           >
-            <MenuItem value="">Cash</MenuItem>
+            <MenuItem value="cash">Cash</MenuItem>
             {(accountsQuery.data ?? []).map((account) => (
               <MenuItem key={account.id} value={account.id}>{account.name}</MenuItem>
             ))}

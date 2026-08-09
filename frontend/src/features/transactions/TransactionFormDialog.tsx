@@ -30,7 +30,7 @@ export default function TransactionFormDialog({
   const queryClient = useQueryClient();
   const [type, setType] = useState<'income' | 'expense'>(editing?.type ?? 'expense');
 
-  const { control, register, handleSubmit, watch, reset, setError, formState: { errors } } = useForm<FormValues, any, FormOutput>({
+  const { control, register, handleSubmit, watch, reset, setError, setValue, formState: { errors } } = useForm<FormValues, any, FormOutput>({
     resolver: zodResolver(schema),
     defaultValues: {
       type: editing?.type ?? 'expense',
@@ -75,13 +75,27 @@ export default function TransactionFormDialog({
 
   const selectedCategoryId = watch('categoryId');
   const selectedPaymentMethodId = watch('paymentMethodId');
+  const selectedSubcategoryId = watch('subcategoryId');
   const selectedCategory = categoriesQuery.data?.find((c) => c.id === selectedCategoryId);
   const selectedPaymentMethod = paymentMethodsQuery.data?.find((p) => p.id === selectedPaymentMethodId);
   const filteredCategories = (categoriesQuery.data ?? []).filter((c) => c.type === type);
 
+  useEffect(() => {
+    if (selectedCategory && selectedSubcategoryId) {
+      const validSubcategory = selectedCategory.subcategories.some((s) => s.id === selectedSubcategoryId);
+      if (!validSubcategory) setValue('subcategoryId', '');
+    }
+  }, [selectedCategory, selectedSubcategoryId, setValue]);
+
   const mutation = useMutation({
     mutationFn: async (values: FormOutput) => {
-      const payload = { ...values, subcategoryId: values.subcategoryId || undefined, paymentMethodId: values.paymentMethodId || undefined, accountId: values.accountId || undefined };
+      const payload = {
+        ...values,
+        subcategoryId: values.subcategoryId || undefined,
+        paymentMethodId: values.paymentMethodId || undefined,
+        accountId: values.accountId || undefined,
+        time: values.time || undefined,
+      };
       if (editing) return api.patch(`/transactions/${editing.id}`, payload);
       return api.post('/transactions', payload);
     },
