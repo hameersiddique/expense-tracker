@@ -175,21 +175,25 @@ export default function DashboardPage() {
             Transfer funds
           </Button>
         </Box>
-        <Grid container spacing={2}>
-          <Grid item xs={12} sm={4} md={3}>
-            <SummaryCard label="Cash balance" value={balancesQuery.isLoading ? 0 : b?.cashBalance ?? 0} icon={<AccountBalanceWalletIcon />} color="#1d4ed8" />
-          </Grid>
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 2,
+            gridTemplateColumns: {
+              xs: '1fr',
+              sm: 'repeat(3, minmax(0, 1fr))',
+              md: 'repeat(4, minmax(0, 1fr))',
+            },
+          }}
+        >
+          <SummaryCard label="Cash balance" value={balancesQuery.isLoading ? 0 : b?.cashBalance ?? 0} icon={<AccountBalanceWalletIcon />} color="#1d4ed8" />
           {(b?.accounts ?? []).map((account) => (
-            <Grid item xs={12} sm={4} md={3} key={account.accountId}>
-              <SummaryCard label={account.name} value={account.balance} icon={<AccountBalanceWalletIcon />} color="#0f766e" />
-            </Grid>
+            <SummaryCard key={account.accountId} label={account.name} value={account.balance} icon={<AccountBalanceWalletIcon />} color="#0f766e" />
           ))}
           {balancesQuery.isSuccess && b?.accounts.length === 0 && (
-            <Grid item xs={12}>
-              <Typography variant="body2" color="text.secondary">No bank accounts added yet. Add accounts in settings to track bank balances.</Typography>
-            </Grid>
+            <Typography variant="body2" color="text.secondary">No bank accounts added yet. Add accounts in settings to track bank balances.</Typography>
           )}
-        </Grid>
+        </Box>
       </Paper>
 
       <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
