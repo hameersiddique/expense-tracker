@@ -11,7 +11,6 @@ export class DefaultDataSeederService {
     const runner = manager ?? this.dataSource.manager;
     await this.seedCategories(userId, runner);
     await this.seedPaymentMethods(userId, runner);
-    await this.seedDefaultAccount(userId, runner);
   }
 
   private async seedCategories(userId: string, manager: EntityManager): Promise<void> {
@@ -43,10 +42,4 @@ export class DefaultDataSeederService {
     await paymentMethodRepo.save(entities);
   }
 
-  private async seedDefaultAccount(userId: string, manager: EntityManager): Promise<void> {
-    const accountRepo = manager.getRepository(Account);
-    await accountRepo.save(accountRepo.create({
-      userId, name: 'Main Account', initialBalance: '0', currency: 'USD', isDefault: true,
-    }));
-  }
 }
