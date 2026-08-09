@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
@@ -22,8 +22,9 @@ type FormValues = z.infer<typeof schema>;
 
 export default function TransferDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
-  const { control, register, handleSubmit, setError, formState: { errors }, reset } = useForm<FormValues>({
-    resolver: zodResolver(schema),
+  const resolver: Resolver<FormValues> = zodResolver(schema) as Resolver<FormValues>;
+  const { register, handleSubmit, setError, formState: { errors }, reset } = useForm<FormValues>({
+    resolver,
     defaultValues: {
       fromAccountId: '',
       toAccountId: '',

@@ -77,7 +77,6 @@ export default function TransactionFormDialog({
   const selectedPaymentMethodId = watch('paymentMethodId');
   const selectedCategory = categoriesQuery.data?.find((c) => c.id === selectedCategoryId);
   const selectedPaymentMethod = paymentMethodsQuery.data?.find((p) => p.id === selectedPaymentMethodId);
-  const requiresAccount = selectedPaymentMethod?.type !== 'cash';
   const filteredCategories = (categoriesQuery.data ?? []).filter((c) => c.type === type);
 
   const mutation = useMutation({
