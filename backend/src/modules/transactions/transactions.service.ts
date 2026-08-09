@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import dayjs from 'dayjs';
 import { parse } from 'csv-parse/sync';
-import { Transaction, Category, TransactionType, Subcategory, PaymentMethod, Account, CategoryType } from '../../entities';
+import { Transaction, Category, TransactionType, Subcategory, PaymentMethod, Account, CategoryType, PaymentMethodType } from '../../entities';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
 import { QueryTransactionDto } from './dto/query-transaction.dto';
@@ -252,50 +252,70 @@ export class TransactionsService {
     const { fromAccountId = null, toAccountId = null, amount, date, notes } = dto;
     if (!amount || amount <= 0) throw new BadRequestException('Invalid transfer amount');
     if (fromAccountId === toAccountId) throw new BadRequestException('Source and destination accounts must differ');
+    if (!fromAccountId && !toAccountId) throw new BadRequestException('Source or destination must be specified');
 
-    // ensure accounts belong to user if provided
-    if (fromAccountId) {
-      const from = await this.accountsRepository.findOne({ where: { id: fromAccountId } });
-      if (!from || from.userId !== userId) throw new NotFoundException('Source account not found');
+    let cashMethod = await this.paymentMethodsRepository.findOne({ where: { userId, type: PaymentMethodType.CASH } });
+    if (!cashMethod) {
+      cashMethod = this.paymentMethodsRepository.create({ userId, type: PaymentMethodType.CASH, name: 'Cash', isDefault: true });
+      cashMethod = await this.paymentMethodsRepository.save(cashMethod);
     }
-    if (toAccountId) {
-      const to = await this.accountsRepository.findOne({ where: { id: toAccountId } });
-      if (!to || to.userId !== userId) throw new NotFoundException('Destination account not found');
-    }
-
-    // Create/ensure transfer categories for both types
-    const transferExpenseCategory = await this.ensureTransferCategory(userId, CategoryType.EXPENSE);
-    const transferIncomeCategory = await this.ensureTransferCategory(userId, CategoryType.INCOME);
 
     const dateStr = date && dayjs(date).isValid() ? dayjs(date).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD');
 
-    // Create expense from source (if fromAccountId provided or cash)
-    const expenseTx = this.transactionsRepository.create({
-      userId,
-      type: TransactionType.EXPENSE,
-      amount: amount.toFixed(2),
-      categoryId: transferExpenseCategory.id,
-      subcategoryId: null,
-      date: dateStr,
-      paymentMethodId: null,
-      accountId: fromAccountId,
-      notes: notes ?? null,
-    });
+    const transferExpenseCategory = await this.ensureTransferCategory(userId, CategoryType.EXPENSE);
+    const transferIncomeCategory = await this.ensureTransferCategory(userId, CategoryType.INCOME);
 
-    // Create income to destination
-    const incomeTx = this.transactionsRepository.create({
-      userId,
-      type: TransactionType.INCOME,
-      amount: amount.toFixed(2),
-      categoryId: transferIncomeCategory.id,
-      subcategoryId: null,
-      date: dateStr,
-      paymentMethodId: null,
-      accountId: toAccountId,
-      notes: notes ?? null,
-    });
+    const tasks: Transaction[] = [];
 
-    const saved = await this.transactionsRepository.save([expenseTx, incomeTx]);
+    if (!fromAccountId || !toAccountId) {
+      const isIncome = !fromAccountId && !!toAccountId;
+      const accountId = toAccountId ?? fromAccountId;
+      const category = isIncome ? transferIncomeCategory : transferExpenseCategory;
+      const transaction = this.transactionsRepository.create({
+        userId,
+        type: isIncome ? TransactionType.INCOME : TransactionType.EXPENSE,
+        amount: amount.toFixed(2),
+        categoryId: category.id,
+        subcategoryId: null,
+        date: dateStr,
+        paymentMethodId: cashMethod.id,
+        accountId,
+        notes: notes ?? null,
+      });
+      tasks.push(transaction);
+    } else {
+      const from = await this.accountsRepository.findOne({ where: { id: fromAccountId } });
+      const to = await this.accountsRepository.findOne({ where: { id: toAccountId } });
+      if (!from || from.userId !== userId) throw new NotFoundException('Source account not found');
+      if (!to || to.userId !== userId) throw new NotFoundException('Destination account not found');
+
+      const expenseTx = this.transactionsRepository.create({
+        userId,
+        type: TransactionType.EXPENSE,
+        amount: amount.toFixed(2),
+        categoryId: transferExpenseCategory.id,
+        subcategoryId: null,
+        date: dateStr,
+        paymentMethodId: null,
+        accountId: fromAccountId,
+        notes: notes ?? null,
+      });
+
+      const incomeTx = this.transactionsRepository.create({
+        userId,
+        type: TransactionType.INCOME,
+        amount: amount.toFixed(2),
+        categoryId: transferIncomeCategory.id,
+        subcategoryId: null,
+        date: dateStr,
+        paymentMethodId: null,
+        accountId: toAccountId,
+        notes: notes ?? null,
+      });
+      tasks.push(expenseTx, incomeTx);
+    }
+
+    const saved = await this.transactionsRepository.save(tasks);
     return { transferred: saved.length };
   }
 

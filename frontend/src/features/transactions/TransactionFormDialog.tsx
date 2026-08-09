@@ -133,34 +133,77 @@ export default function TransactionFormDialog({
             )}
           />
           <TextField label="Amount" type="number" fullWidth inputProps={{ step: '0.01' }} {...register('amount')} error={!!errors.amount} helperText={errors.amount?.message} />
-          <TextField select label="Category" fullWidth {...register('categoryId')} error={!!errors.categoryId} helperText={errors.categoryId?.message} defaultValue={editing?.categoryId ?? ''}>
-            {filteredCategories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
-          </TextField>
+          <Controller
+            name="categoryId"
+            control={control}
+            defaultValue={editing?.categoryId ?? ''}
+            render={({ field }) => (
+              <TextField
+                select
+                label="Category"
+                fullWidth
+                {...field}
+                error={!!errors.categoryId}
+                helperText={errors.categoryId?.message}
+                onChange={(event) => {
+                  field.onChange(event);
+                  const nextCategoryId = event.target.value;
+                  const nextCategory = categoriesQuery.data?.find((c) => c.id === nextCategoryId);
+                  if (nextCategory && selectedSubcategoryId) {
+                    const validSubcategory = nextCategory.subcategories.some((s) => s.id === selectedSubcategoryId);
+                    if (!validSubcategory) setValue('subcategoryId', '');
+                  }
+                }}
+              >
+                {filteredCategories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+              </TextField>
+            )}
+          />
           {selectedCategory && selectedCategory.subcategories.length > 0 && (
-            <TextField select label="Subcategory (optional)" fullWidth {...register('subcategoryId')} defaultValue={editing?.subcategoryId ?? ''}>
-              <MenuItem value="">None</MenuItem>
-              {selectedCategory.subcategories.map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
-            </TextField>
+            <Controller
+              name="subcategoryId"
+              control={control}
+              defaultValue={editing?.subcategoryId ?? ''}
+              render={({ field }) => (
+                <TextField select label="Subcategory (optional)" fullWidth {...field}>
+                  <MenuItem value="">None</MenuItem>
+                  {selectedCategory.subcategories.map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+                </TextField>
+              )}
+            />
           )}
           <TextField label="Date" type="date" fullWidth InputLabelProps={{ shrink: true }} {...register('date')} error={!!errors.date} helperText={errors.date?.message} />
           <TextField label="Time (optional)" type="time" fullWidth InputLabelProps={{ shrink: true }} {...register('time')} error={!!errors.time} helperText={errors.time?.message} />
-          <TextField select label="Payment Method (optional)" fullWidth {...register('paymentMethodId')} defaultValue={editing?.paymentMethodId ?? ''}>
-            <MenuItem value="">None</MenuItem>
-            {(paymentMethodsQuery.data ?? []).map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
-          </TextField>
+          <Controller
+            name="paymentMethodId"
+            control={control}
+            defaultValue={editing?.paymentMethodId ?? ''}
+            render={({ field }) => (
+              <TextField select label="Payment Method (optional)" fullWidth {...field}>
+                <MenuItem value="">None</MenuItem>
+                {(paymentMethodsQuery.data ?? []).map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
+              </TextField>
+            )}
+          />
           {selectedPaymentMethod && selectedPaymentMethod.type !== 'cash' && (
-            <TextField
-              select
-              label="Account"
-              fullWidth
-              {...register('accountId')}
+            <Controller
+              name="accountId"
+              control={control}
               defaultValue={editing?.accountId ?? ''}
-              error={!!errors.accountId}
-              helperText={errors.accountId?.message ?? 'Choose the bank account used for this payment method.'}
-            >
-              <MenuItem value="">None</MenuItem>
-              {(accountsQuery.data ?? []).map((a) => <MenuItem key={a.id} value={a.id}>{a.name}</MenuItem>)}
-            </TextField>
+              render={({ field }) => (
+                <TextField
+                  select
+                  label="Account"
+                  fullWidth
+                  {...field}
+                  error={!!errors.accountId}
+                  helperText={errors.accountId?.message ?? 'Choose the bank account used for this payment method.'}
+                >
+                  <MenuItem value="">None</MenuItem>
+                  {(accountsQuery.data ?? []).map((a) => <MenuItem key={a.id} value={a.id}>{a.name}</MenuItem>)}
+                </TextField>
+              )}
+            />
           )}
           <TextField label="Notes (optional)" fullWidth multiline rows={2} {...register('notes')} />
         </Stack>
