@@ -10,10 +10,17 @@ import dayjs from 'dayjs';
 import { api } from '../../api/client';
 import type { Category, PaymentMethod, Account, Transaction } from '../../types';
 
+// NOTE: categoryId/accountId are deliberately NOT `.uuid()`-validated. A previous
+// version had `z.string().uuid().optional()`, but `.optional()` only skips
+// validation for `undefined` — an empty string `''` (the default value while
+// nothing is selected yet, and the permanent value on the Transfer tab, which
+// has no category at all) still hit the uuid check and failed. That silently
+// blocked handleSubmit from ever calling onSubmit, most visibly on Transfer.
+// "Required" is enforced by hand in onSubmit below instead.
 const schema = z.object({
   type: z.enum(['income', 'expense']),
   amount: z.coerce.number().positive('Amount must be greater than 0'),
-  categoryId: z.string().uuid('Select a category').optional(),
+  categoryId: z.string().optional(),
   subcategoryId: z.string().optional(),
   date: z.string().min(1, 'Date is required'),
   time: z.string().optional(),
@@ -25,15 +32,47 @@ type FormValues = z.input<typeof schema>;
 type FormOutput = z.output<typeof schema>;
 
 type Mode = 'income' | 'expense' | 'transfer';
-// One side of a transfer: cash on hand, a specific bank/account, or money leaving/entering
-// the tracked wallet entirely (e.g. gift given out, cash found, external payment).
-type TransferSide = 'cash' | 'account' | 'external';
+// One side of a transfer: cash on hand, a specific bank/account, or (destination
+// only) money leaving the tracked wallet entirely. '' means "not chosen yet" —
+// Transfer starts with neither side picked, forcing an explicit choice.
+type TransferSide = '' | 'cash' | 'account' | 'external';
 
-// NOTE: these two type-guesses assume the API returns transfer transactions with
-// `fromAccountId` / `toAccountId` / `external` fields (mirroring the payload shape
-// posted to /transactions/transfer below), and flags a transfer either via
-// `editing.category?.name === 'Transfer'` or an explicit `editing.type === 'transfer'`.
-// Adjust these two checks if your actual Transaction/transfer shape differs.
+// Everything the Income tab and the Expense tab each need to remember about
+// themselves, independent of one another and independent of Transfer.
+type CategoryDraft = {
+  amount: number | undefined;
+  categoryId: string;
+  subcategoryId: string;
+  date: string;
+  time: string;
+  paymentMethodId: string;
+  accountId: string;
+  notes: string;
+};
+type TransferDraft = {
+  amount: number | undefined;
+  date: string;
+  time: string;
+  notes: string;
+  fromMode: TransferSide;
+  toMode: TransferSide;
+  fromAccountId: string;
+  toAccountId: string;
+};
+
+const today = () => dayjs().format('YYYY-MM-DD');
+const blankCategoryDraft = (): CategoryDraft => ({
+  amount: undefined, categoryId: '', subcategoryId: '', date: today(), time: '', paymentMethodId: '', accountId: '', notes: '',
+});
+const blankTransferDraft = (): TransferDraft => ({
+  amount: undefined, date: today(), time: '', notes: '', fromMode: '', toMode: '', fromAccountId: '', toAccountId: '',
+});
+
+// NOTE: this type-guess assumes the API returns transfer transactions with
+// `fromAccountId` / `toAccountId` / `external` fields (mirroring the payload
+// posted to /transactions/transfer below), flagged via `editing.type ===
+// 'transfer'` or `editing.category?.name === 'Transfer'`. Adjust if your
+// actual Transaction/transfer shape differs.
 function isTransferTransaction(t: Transaction | null): boolean {
   if (!t) return false;
   return (t as any).type === 'transfer' || t.category?.name === 'Transfer';
@@ -50,68 +89,166 @@ export default function TransactionFormDialog({
 }: { open: boolean; onClose: () => void; editing: Transaction | null }) {
   const queryClient = useQueryClient();
 
-  const initialMode: Mode = editing
-    ? (isTransferTransaction(editing) ? 'transfer' : (editing.type ?? 'expense'))
-    : 'expense';
+  const [mode, setMode] = useState<Mode>('expense');
 
-  const [mode, setMode] = useState<Mode>(initialMode);
-  const [type, setType] = useState<'income' | 'expense'>(editing?.type === 'income' ? 'income' : 'expense');
+  // The currently-active tab's transfer-only fields live here (not in the
+  // per-tab draft below, which is just a snapshot used to restore a tab you've
+  // navigated away from).
+  const [fromMode, setFromMode] = useState<TransferSide>('');
+  const [toMode, setToMode] = useState<TransferSide>('');
+  const [fromAccountIdState, setFromAccountIdState] = useState('');
+  const [toAccountIdState, setToAccountIdState] = useState('');
 
-  const [fromMode, setFromMode] = useState<TransferSide>('cash');
-  const [toMode, setToMode] = useState<TransferSide>('account');
-  const [fromAccountIdState, setFromAccountIdState] = useState<string | ''>('');
-  const [toAccountIdState, setToAccountIdState] = useState<string | ''>('');
+  // One saved snapshot per tab, so switching tabs never leaks amount/category/
+  // notes/etc. from one into another.
+  const [expenseDraft, setExpenseDraft] = useState<CategoryDraft>(blankCategoryDraft());
+  const [incomeDraft, setIncomeDraft] = useState<CategoryDraft>(blankCategoryDraft());
+  const [transferDraft, setTransferDraft] = useState<TransferDraft>(blankTransferDraft());
 
-  const { control, register, handleSubmit, watch, reset, setError, setValue, clearErrors, formState: { errors } } = useForm<FormValues, any, FormOutput>({
+  const { control, register, handleSubmit, watch, reset, getValues, setError, setValue, clearErrors, formState: { errors } } = useForm<FormValues, any, FormOutput>({
     resolver: zodResolver(schema),
     defaultValues: {
-      type: editing?.type ?? 'expense',
-      amount: editing ? Number(editing.amount) : undefined,
-      categoryId: editing?.categoryId ?? '',
-      subcategoryId: editing?.subcategoryId ?? '',
-      date: editing?.date ? dayjs(editing.date).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
-      time: editing?.date ? dayjs(editing.date).format('HH:mm') : '',
-      paymentMethodId: editing?.paymentMethodId ?? '',
-      accountId: editing?.accountId ?? '',
-      notes: editing?.notes ?? '',
+      type: 'expense',
+      amount: undefined,
+      categoryId: '',
+      subcategoryId: '',
+      date: today(),
+      time: '',
+      paymentMethodId: '',
+      accountId: '',
+      notes: '',
     },
   });
 
+  const applyCategoryDraft = (m: 'income' | 'expense', draft: CategoryDraft) => {
+    reset({
+      type: m,
+      amount: draft.amount,
+      categoryId: draft.categoryId,
+      subcategoryId: draft.subcategoryId,
+      date: draft.date,
+      time: draft.time,
+      paymentMethodId: draft.paymentMethodId,
+      accountId: draft.accountId,
+      notes: draft.notes,
+    });
+  };
+
+  const applyTransferDraft = (draft: TransferDraft) => {
+    reset({
+      type: 'expense', // unused by the transfer mutation path, schema just needs a value
+      amount: draft.amount,
+      categoryId: '',
+      subcategoryId: '',
+      date: draft.date,
+      time: draft.time,
+      paymentMethodId: '',
+      accountId: '',
+      notes: draft.notes,
+    });
+    setFromMode(draft.fromMode);
+    setToMode(draft.toMode);
+    setFromAccountIdState(draft.fromAccountId);
+    setToAccountIdState(draft.toAccountId);
+  };
+
+  // Capture whatever's currently on screen for the tab we're about to leave.
+  const captureCategoryDraft = (): CategoryDraft => {
+    const v = getValues();
+    return {
+      amount: v.amount as unknown as number | undefined,
+      categoryId: v.categoryId ?? '',
+      subcategoryId: v.subcategoryId ?? '',
+      date: v.date,
+      time: v.time ?? '',
+      paymentMethodId: v.paymentMethodId ?? '',
+      accountId: v.accountId ?? '',
+      notes: v.notes ?? '',
+    };
+  };
+  const captureTransferDraft = (): TransferDraft => {
+    const v = getValues();
+    return {
+      amount: v.amount as unknown as number | undefined,
+      date: v.date,
+      time: v.time ?? '',
+      notes: v.notes ?? '',
+      fromMode, toMode,
+      fromAccountId: fromAccountIdState,
+      toAccountId: toAccountIdState,
+    };
+  };
+
+  // Reset everything to a clean, isolated set of per-tab drafts whenever the
+  // dialog opens (new transaction, or editing a specific one).
   useEffect(() => {
     if (!open) return;
 
-    const nextMode: Mode = editing
-      ? (isTransferTransaction(editing) ? 'transfer' : (editing.type ?? 'expense'))
-      : 'expense';
-    setMode(nextMode);
-    setType(editing?.type === 'income' ? 'income' : 'expense');
+    const isTransfer = isTransferTransaction(editing);
+    const nextMode: Mode = editing ? (isTransfer ? 'transfer' : (editing.type ?? 'expense')) : 'expense';
 
-    reset({
-      type: editing?.type ?? 'expense',
-      amount: editing ? Number(editing.amount) : undefined,
-      categoryId: editing?.categoryId ?? '',
-      subcategoryId: editing?.subcategoryId ?? '',
-      date: editing?.date ? dayjs(editing.date).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
-      time: editing?.date ? dayjs(editing.date).format('HH:mm') : '',
-      paymentMethodId: editing?.paymentMethodId ?? '',
-      accountId: editing?.accountId ?? '',
-      notes: editing?.notes ?? '',
-    });
+    const freshExpense = blankCategoryDraft();
+    const freshIncome = blankCategoryDraft();
+    const freshTransfer = blankTransferDraft();
 
-    if (nextMode === 'transfer' && editing) {
+    if (editing && !isTransfer) {
+      const draft: CategoryDraft = {
+        amount: Number(editing.amount),
+        categoryId: editing.categoryId ?? '',
+        subcategoryId: editing.subcategoryId ?? '',
+        date: dayjs(editing.date).format('YYYY-MM-DD'),
+        time: dayjs(editing.date).format('HH:mm'),
+        paymentMethodId: editing.paymentMethodId ?? '',
+        accountId: editing.accountId ?? '',
+        notes: editing.notes ?? '',
+      };
+      if (editing.type === 'income') Object.assign(freshIncome, draft);
+      else Object.assign(freshExpense, draft);
+    }
+
+    if (editing && isTransfer) {
       const e = editing as any;
       const derivedFromMode = sideFromAccountId(e.fromAccountId, e.external && !e.fromAccountId);
-      setFromMode(derivedFromMode === 'external' ? 'cash' : derivedFromMode);
-      setToMode(sideFromAccountId(e.toAccountId, e.external && !e.toAccountId));
-      setFromAccountIdState(e.fromAccountId ?? '');
-      setToAccountIdState(e.toAccountId ?? '');
-    } else {
-      setFromMode('cash');
-      setToMode('account');
-      setFromAccountIdState('');
-      setToAccountIdState('');
+      Object.assign(freshTransfer, {
+        amount: Number(editing.amount),
+        date: dayjs(editing.date).format('YYYY-MM-DD'),
+        time: dayjs(editing.date).format('HH:mm'),
+        notes: editing.notes ?? '',
+        // "Out of wallet" is a destination-only concept — see the From select below —
+        // so an old record that somehow has it on the From side falls back to Cash.
+        fromMode: derivedFromMode === 'external' ? 'cash' : derivedFromMode,
+        toMode: sideFromAccountId(e.toAccountId, e.external && !e.toAccountId),
+        fromAccountId: e.fromAccountId ?? '',
+        toAccountId: e.toAccountId ?? '',
+      } as Partial<TransferDraft>);
     }
+
+    setExpenseDraft(freshExpense);
+    setIncomeDraft(freshIncome);
+    setTransferDraft(freshTransfer);
+    clearErrors();
+    setMode(nextMode);
+
+    if (nextMode === 'transfer') applyTransferDraft(freshTransfer);
+    else applyCategoryDraft(nextMode, nextMode === 'income' ? freshIncome : freshExpense);
   }, [editing, open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleModeChange = (v: Mode | null) => {
+    if (!v || v === mode) return;
+
+    // Snapshot the tab being left, then swap to the target tab's own snapshot.
+    // Reading transferDraft/incomeDraft/expenseDraft below is always safe here
+    // because we only ever read the draft for `v`, which is never the same
+    // state we just wrote to for `mode`.
+    if (mode === 'transfer') setTransferDraft(captureTransferDraft());
+    else if (mode === 'income') setIncomeDraft(captureCategoryDraft());
+    else setExpenseDraft(captureCategoryDraft());
+
+    clearErrors();
+    setMode(v);
+    if (v === 'transfer') applyTransferDraft(transferDraft);
+    else applyCategoryDraft(v, v === 'income' ? incomeDraft : expenseDraft);
+  };
 
   const categoriesQuery = useQuery({
     queryKey: ['categories'],
@@ -132,7 +269,7 @@ export default function TransactionFormDialog({
   const selectedSubcategoryId = watch('subcategoryId');
   const selectedCategory = categoriesQuery.data?.find((c) => c.id === selectedCategoryId);
   const selectedPaymentMethod = paymentMethodsQuery.data?.find((p) => p.id === selectedPaymentMethodId);
-  const filteredCategories = (categoriesQuery.data ?? []).filter((c) => c.type === type);
+  const filteredCategories = (categoriesQuery.data ?? []).filter((c) => c.type === mode);
 
   // Income doesn't need a parent-category step: the subcategories under the
   // income category/categories ARE the sources of income (Salary, Freelancing,
@@ -143,13 +280,13 @@ export default function TransactionFormDialog({
     .flatMap((c) => c.subcategories.map((s) => ({ ...s, categoryId: c.id })));
 
   useEffect(() => {
-    if (selectedCategory && selectedSubcategoryId) {
+    if (mode === 'expense' && selectedCategory && selectedSubcategoryId) {
       const validSubcategory = selectedCategory.subcategories.some((s) => s.id === selectedSubcategoryId);
       if (!validSubcategory) setValue('subcategoryId', '');
     }
-  }, [selectedCategory, selectedSubcategoryId, setValue]);
+  }, [mode, selectedCategory, selectedSubcategoryId, setValue]);
 
-  // If a side switches away from "account", drop its stale account id.
+  // If a transfer side switches away from "account", drop its stale account id.
   useEffect(() => {
     if (fromMode !== 'account') setFromAccountIdState('');
   }, [fromMode]);
@@ -168,7 +305,7 @@ export default function TransactionFormDialog({
           amount: values.amount,
           date: values.date,
           notes: values.notes || undefined,
-          external: fromMode === 'external' || toMode === 'external',
+          external: toMode === 'external',
         } as const;
 
         if (editing && isTransferTransaction(editing)) {
@@ -184,6 +321,7 @@ export default function TransactionFormDialog({
         return res;
       }
 
+      // income / expense — never touches the transfer endpoints.
       const payload = {
         ...values,
         subcategoryId: values.subcategoryId || null,
@@ -211,14 +349,16 @@ export default function TransactionFormDialog({
     clearErrors();
 
     if (mode === 'transfer') {
-      if (fromMode === 'account' && !fromAccountIdState) { setError('root', { type: 'manual', message: 'Select the source bank account' }); return; }
-      if (toMode === 'account' && !toAccountIdState) { setError('root', { type: 'manual', message: 'Select the destination bank account' }); return; }
+      if (!fromMode) { setError('root', { type: 'manual', message: 'Choose where the money is coming from' } as any); return; }
+      if (!toMode) { setError('root', { type: 'manual', message: 'Choose where the money is going' } as any); return; }
+      if (fromMode === 'account' && !fromAccountIdState) { setError('root', { type: 'manual', message: 'Select the source bank account' } as any); return; }
+      if (toMode === 'account' && !toAccountIdState) { setError('root', { type: 'manual', message: 'Select the destination bank account' } as any); return; }
       if (fromMode === 'account' && toMode === 'account' && fromAccountIdState === toAccountIdState) {
-        setError('root', { type: 'manual', message: 'Source and destination accounts must differ' });
+        setError('root', { type: 'manual', message: 'Source and destination accounts must differ' } as any);
         return;
       }
       if (fromMode === 'cash' && toMode === 'cash') {
-        setError('root', { type: 'manual', message: 'Choose at least one bank account, or "out of wallet", on one side' });
+        setError('root', { type: 'manual', message: 'Choose a bank account, or "out of wallet", on at least one side' } as any);
         return;
       }
       mutation.mutate(values);
@@ -274,16 +414,7 @@ export default function TransactionFormDialog({
             exclusive
             fullWidth
             value={mode}
-            onChange={(_, v: Mode | null) => {
-              if (!v) return;
-              setMode(v);
-              clearErrors();
-              if (v === 'income' || v === 'expense') {
-                setType(v);
-                setValue('type', v);
-              }
-              if (v === 'transfer' && fromMode === 'external') setFromMode('cash');
-            }}
+            onChange={(_, v: Mode | null) => handleModeChange(v)}
           >
             <ToggleButton value="expense" color="error">Expense</ToggleButton>
             <ToggleButton value="income" color="success">Income</ToggleButton>
@@ -305,7 +436,6 @@ export default function TransactionFormDialog({
               <Controller
                 name="categoryId"
                 control={control}
-                defaultValue={editing?.categoryId ?? ''}
                 render={({ field }) => (
                   <TextField
                     select
@@ -332,7 +462,6 @@ export default function TransactionFormDialog({
                 <Controller
                   name="subcategoryId"
                   control={control}
-                  defaultValue={editing?.subcategoryId ?? ''}
                   render={({ field }) => (
                     <TextField select label="Subcategory (optional)" fullWidth {...field}>
                       <MenuItem value="">None</MenuItem>
@@ -348,7 +477,6 @@ export default function TransactionFormDialog({
             <Controller
               name="subcategoryId"
               control={control}
-              defaultValue={editing?.subcategoryId ?? ''}
               render={({ field }) => (
                 <TextField
                   select
@@ -375,7 +503,6 @@ export default function TransactionFormDialog({
               <Controller
                 name="paymentMethodId"
                 control={control}
-                defaultValue={editing?.paymentMethodId ?? ''}
                 render={({ field }) => (
                   <TextField select label="Payment Method (optional)" fullWidth {...field}>
                     <MenuItem value="">None</MenuItem>
@@ -387,7 +514,6 @@ export default function TransactionFormDialog({
                 <Controller
                   name="accountId"
                   control={control}
-                  defaultValue={editing?.accountId ?? ''}
                   render={({ field }) => (
                     <TextField
                       select
@@ -409,12 +535,14 @@ export default function TransactionFormDialog({
           {mode === 'transfer' && (
             <Stack spacing={1}>
               <TextField select label="From" fullWidth value={fromMode} onChange={(e) => setFromMode(e.target.value as TransferSide)}>
+                <MenuItem value="">Select...</MenuItem>
                 <MenuItem value="cash">Cash</MenuItem>
                 <MenuItem value="account">Bank</MenuItem>
               </TextField>
               {renderSideBankPicker('from', fromMode, fromAccountIdState, setFromAccountIdState)}
 
               <TextField select label="To" fullWidth value={toMode} onChange={(e) => setToMode(e.target.value as TransferSide)}>
+                <MenuItem value="">Select...</MenuItem>
                 <MenuItem value="cash">Cash</MenuItem>
                 <MenuItem value="account">Bank</MenuItem>
                 <MenuItem value="external">Out of wallet</MenuItem>
