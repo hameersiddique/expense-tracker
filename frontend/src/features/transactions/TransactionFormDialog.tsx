@@ -134,7 +134,7 @@ export default function TransactionFormDialog({
   });
 
   const onSubmit = (values: FormOutput) => {
-    if (mode === 'transfer') {
+    if ((mode as any) === 'transfer') {
       if (fromMode === 'account' && !fromAccountIdState) { setError('accountId', { type: 'manual', message: 'Select source account' }); return; }
       if (toMode === 'account' && !toAccountIdState) { setError('accountId', { type: 'manual', message: 'Select destination account' }); return; }
       // prevent same account
@@ -149,9 +149,13 @@ export default function TransactionFormDialog({
       setError('accountId', { type: 'manual', message: 'Account is required for non-cash payment methods' });
       return;
     }
-    if (mode !== 'transfer' && !values.categoryId) {
-      setError('categoryId', { type: 'manual', message: 'Category is required' });
-      return;
+    if (mode === 'transfer') {
+      // transfer handled above
+    } else {
+      if (!values.categoryId) {
+        setError('categoryId', { type: 'manual', message: 'Category is required' });
+        return;
+      }
     }
     mutation.mutate(values);
   };
