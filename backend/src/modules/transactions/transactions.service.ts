@@ -313,8 +313,10 @@ export class TransactionsService {
   async createTransfer(userId: string, dto: { fromAccountId?: string | null; toAccountId?: string | null; amount: number; date?: string; notes?: string; external?: boolean }) {
     const { fromAccountId = null, toAccountId = null, amount, date, notes, external = false } = dto;
     if (!amount || amount <= 0) throw new BadRequestException('Invalid transfer amount');
-    if (fromAccountId === toAccountId) throw new BadRequestException('Source and destination accounts must differ');
-    if (!fromAccountId && !toAccountId) throw new BadRequestException('Source or destination must be specified');
+    // Only enforce "differ" when both sides are actual account IDs
+    if (fromAccountId && toAccountId && fromAccountId === toAccountId) throw new BadRequestException('Source and destination accounts must differ');
+    // Allow both sides to be null when the transfer is external (withdrawal out of wallet)
+    if (!fromAccountId && !toAccountId && !external) throw new BadRequestException('Source or destination must be specified');
 
     let cashMethod = await this.paymentMethodsRepository.findOne({ where: { userId, type: PaymentMethodType.CASH } });
     if (!cashMethod) {
