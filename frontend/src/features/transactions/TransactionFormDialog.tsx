@@ -3,7 +3,7 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
-  Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, MenuItem, Stack, ToggleButtonGroup, ToggleButton,
+  Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, MenuItem, Stack, ToggleButtonGroup, ToggleButton, Typography,
 } from '@mui/material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
@@ -13,7 +13,7 @@ import type { Category, PaymentMethod, Account, Transaction } from '../../types'
 const schema = z.object({
   type: z.enum(['income', 'expense']),
   amount: z.coerce.number().positive('Amount must be greater than 0'),
-  categoryId: z.string().uuid('Select a category'),
+  categoryId: z.string().uuid('Select a category').optional(),
   subcategoryId: z.string().optional(),
   date: z.string().min(1, 'Date is required'),
   time: z.string().optional(),
@@ -29,6 +29,12 @@ export default function TransactionFormDialog({
 }: { open: boolean; onClose: () => void; editing: Transaction | null }) {
   const queryClient = useQueryClient();
   const [type, setType] = useState<'income' | 'expense'>(editing?.type ?? 'expense');
+  const [mode, setMode] = useState<'income' | 'expense' | 'transfer'>(editing ? (editing.category?.name === 'Transfer' ? 'transfer' : (editing.type ?? 'expense')) : 'expense');
+
+  const [fromMode, setFromMode] = useState<'cash' | 'account' | 'external'>('cash');
+  const [toMode, setToMode] = useState<'cash' | 'account' | 'external'>('account');
+  const [fromAccountIdState, setFromAccountIdState] = useState<string | ''>('');
+  const [toAccountIdState, setToAccountIdState] = useState<string | ''>('');
 
   const { control, register, handleSubmit, watch, reset, setError, setValue, formState: { errors } } = useForm<FormValues, any, FormOutput>({
     resolver: zodResolver(schema),
@@ -56,6 +62,10 @@ export default function TransactionFormDialog({
       paymentMethodId: editing?.paymentMethodId ?? '',
       accountId: editing?.accountId ?? '',
       notes: editing?.notes ?? '',
+      // reset transfer modes when opening
+      // default: from cash -> to account
+      // if editing and appears like transfer, try to infer
+      ...(editing && editing.category?.name === 'Transfer' ? { } : {}),
     });
     setType(editing?.type ?? 'expense');
   }, [editing, open]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -89,9 +99,26 @@ export default function TransactionFormDialog({
 
   const mutation = useMutation({
     mutationFn: async (values: FormOutput) => {
+      if (mode === 'transfer') {
+        // build transfer payload from transfer-specific state
+        const fromAccountId = fromMode === 'account' ? (fromAccountIdState || null) : (fromMode === 'cash' ? null : null);
+        const toAccountId = toMode === 'account' ? (toAccountIdState || null) : (toMode === 'cash' ? null : null);
+        const payload = {
+          fromAccountId: fromAccountId ?? null,
+          toAccountId: toAccountId ?? null,
+          amount: values.amount,
+          date: values.date,
+          notes: values.notes || undefined,
+          external: fromMode === 'external' || toMode === 'external',
+        } as const;
+        // If editing an existing transaction and converting to transfer, create transfer then delete original
+        const res = await api.post('/transactions/transfer', payload);
+        if (editing) await api.delete(`/transactions/${editing.id}`);
+        return res;
+      }
       const payload = {
         ...values,
-        subcategoryId: values.subcategoryId || undefined,
+        subcategoryId: values.subcategoryId || null,
         paymentMethodId: values.paymentMethodId || undefined,
         accountId: values.accountId || undefined,
         time: values.time || undefined,
@@ -107,8 +134,23 @@ export default function TransactionFormDialog({
   });
 
   const onSubmit = (values: FormOutput) => {
+    if (mode === 'transfer') {
+      if (fromMode === 'account' && !fromAccountIdState) { setError('accountId', { type: 'manual', message: 'Select source account' }); return; }
+      if (toMode === 'account' && !toAccountIdState) { setError('accountId', { type: 'manual', message: 'Select destination account' }); return; }
+      // prevent same account
+      if (fromMode === 'account' && toMode === 'account' && fromAccountIdState && toAccountIdState && fromAccountIdState === toAccountIdState) {
+        setError('accountId', { type: 'manual', message: 'Source and destination must differ' });
+        return;
+      }
+      mutation.mutate(values);
+      return;
+    }
     if (selectedPaymentMethod && selectedPaymentMethod.type !== 'cash' && !values.accountId) {
       setError('accountId', { type: 'manual', message: 'Account is required for non-cash payment methods' });
+      return;
+    }
+    if (mode !== 'transfer' && !values.categoryId) {
+      setError('categoryId', { type: 'manual', message: 'Category is required' });
       return;
     }
     mutation.mutate(values);
@@ -125,13 +167,21 @@ export default function TransactionFormDialog({
             render={({ field }) => (
               <ToggleButtonGroup
                 exclusive fullWidth value={field.value}
-                onChange={(_, v) => { if (v) { field.onChange(v); setType(v); } }}
+                onChange={(_, v) => { if (v) { field.onChange(v); setType(v); setMode(v); } }}
               >
                 <ToggleButton value="expense" color="error">Expense</ToggleButton>
                 <ToggleButton value="income" color="success">Income</ToggleButton>
               </ToggleButtonGroup>
             )}
           />
+          <ToggleButtonGroup
+            exclusive fullWidth value={mode}
+            onChange={(_, v) => { if (v) { setMode(v); if (v !== 'transfer') setType(v as 'income' | 'expense'); } }}
+          >
+            <ToggleButton value="expense" color="error">Expense</ToggleButton>
+            <ToggleButton value="income" color="success">Income</ToggleButton>
+            <ToggleButton value="transfer">Transfer</ToggleButton>
+          </ToggleButtonGroup>
           <TextField label="Amount" type="number" fullWidth inputProps={{ step: '0.01' }} {...register('amount')} error={!!errors.amount} helperText={errors.amount?.message} />
           <Controller
             name="categoryId"
@@ -204,6 +254,43 @@ export default function TransactionFormDialog({
                 </TextField>
               )}
             />
+          )}
+          {mode === 'transfer' && (
+            <Stack spacing={1}>
+              <Typography variant="subtitle2">From</Typography>
+              <TextField select label="Source" fullWidth value={fromMode} onChange={(e) => setFromMode(e.target.value as any)}>
+                <MenuItem value="cash">Cash</MenuItem>
+                <MenuItem value="account">Account</MenuItem>
+                <MenuItem value="external">Out of wallet</MenuItem>
+              </TextField>
+              {fromMode === 'account' && (
+                (accountsQuery.data ?? []).length === 0 ? (
+                  <Typography color="warning.main">No accounts available. Add a bank/account to transfer from.</Typography>
+                ) : (
+                  <TextField select label="From Account" fullWidth value={fromAccountIdState} onChange={(e) => setFromAccountIdState(e.target.value)}>
+                    <MenuItem value="">Select account</MenuItem>
+                    {(accountsQuery.data ?? []).map((a) => <MenuItem key={a.id} value={a.id}>{a.name}</MenuItem>)}
+                  </TextField>
+                )
+              )}
+
+              <Typography variant="subtitle2">To</Typography>
+              <TextField select label="Destination" fullWidth value={toMode} onChange={(e) => setToMode(e.target.value as any)}>
+                <MenuItem value="cash">Cash</MenuItem>
+                <MenuItem value="account">Account</MenuItem>
+                <MenuItem value="external">Out of wallet</MenuItem>
+              </TextField>
+              {toMode === 'account' && (
+                (accountsQuery.data ?? []).length === 0 ? (
+                  <Typography color="warning.main">No accounts available. Add a bank/account to transfer to.</Typography>
+                ) : (
+                  <TextField select label="To Account" fullWidth value={toAccountIdState} onChange={(e) => setToAccountIdState(e.target.value)}>
+                    <MenuItem value="">Select account</MenuItem>
+                    {(accountsQuery.data ?? []).map((a) => <MenuItem key={a.id} value={a.id}>{a.name}</MenuItem>)}
+                  </TextField>
+                )
+              )}
+            </Stack>
           )}
           <TextField label="Notes (optional)" fullWidth multiline rows={2} {...register('notes')} />
         </Stack>
