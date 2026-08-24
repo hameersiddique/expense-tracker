@@ -176,7 +176,7 @@ export default function TransactionFormDialog({
           />
           <ToggleButtonGroup
             exclusive fullWidth value={mode}
-            onChange={(_, v) => { if (v) { setMode(v); if (v !== 'transfer') setType(v as 'income' | 'expense'); } }}
+            onChange={(_, v) => { if (v) { setMode(v); if (v === 'income' || v === 'expense') setType(v); } }}
           >
             <ToggleButton value="expense" color="error">Expense</ToggleButton>
             <ToggleButton value="income" color="success">Income</ToggleButton>
