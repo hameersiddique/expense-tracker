@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Patch, Delete, Param, Body, Query, Res, UseGuards, UseInterceptors,
-  UploadedFile, ParseUUIDPipe, BadRequestException,
+  UploadedFile, ParseUUIDPipe, BadRequestException, Logger,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes } from '@nestjs/swagger';
@@ -20,6 +20,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 @UseGuards(JwtAuthGuard)
 @Controller('transactions')
 export class TransactionsController {
+  private readonly logger = new Logger(TransactionsController.name);
   constructor(private readonly transactionsService: TransactionsService) {}
 
   @Get()
@@ -78,6 +79,7 @@ export class TransactionsController {
 
   @Patch(':id')
   update(@CurrentUser('sub') userId: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateTransactionDto) {
+    this.logger.debug(`PATCH /transactions/${id} by user ${userId} payload: ${JSON.stringify(dto)}`);
     return this.transactionsService.update(userId, id, dto);
   }
 

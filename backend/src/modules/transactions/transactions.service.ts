@@ -129,6 +129,7 @@ export class TransactionsService {
   }
 
   async update(userId: string, id: string, dto: UpdateTransactionDto): Promise<Transaction> {
+    this.logger.debug(`Updating transaction ${id} for user ${userId} with payload: ${JSON.stringify(dto)}`);
     const transaction = await this.findOne(userId, id);
     if (dto.categoryId) await this.validateCategoryOwnership(userId, dto.categoryId, dto.type ?? transaction.type);
 
@@ -144,10 +145,16 @@ export class TransactionsService {
     if (transaction.paymentMethodId) {
       const pm = await this.paymentMethodsRepository.findOne({ where: { id: transaction.paymentMethodId } });
       if (pm && pm.type !== 'cash' && !transaction.accountId) {
+        this.logger.warn(`Validation failed for transaction ${id}: non-cash payment method without account`);
         throw new BadRequestException('An account must be selected when using a non-cash payment method');
       }
     }
-    await this.transactionsRepository.save(transaction);
+    try {
+      await this.transactionsRepository.save(transaction);
+    } catch (err: any) {
+      this.logger.error(`Failed to save transaction ${id}: ${err?.message ?? err}`, err?.stack);
+      throw err;
+    }
     return this.findOne(userId, id);
   }
 
