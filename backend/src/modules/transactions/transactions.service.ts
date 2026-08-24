@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import dayjs from 'dayjs';
@@ -17,6 +17,7 @@ const TRANSACTION_RELATIONS = ['category', 'subcategory', 'paymentMethod', 'acco
 
 @Injectable()
 export class TransactionsService {
+  private readonly logger = new Logger(TransactionsService.name);
   constructor(
     @InjectRepository(Transaction) private transactionsRepository: Repository<Transaction>,
     @InjectRepository(Category) private categoriesRepository: Repository<Category>,
@@ -217,12 +218,32 @@ export class TransactionsService {
       const paymentMethodName = row.paymentMethod || row['Payment Method'] || row['paymentMethod'];
       const date = row.date || row.Date;
 
-      if (!['income', 'expense'].includes(type)) { errors.push(`Row ${rowNum}: invalid type "${row.type || row.Type}"`); return; }
+      if (!['income', 'expense'].includes(type)) {
+        const msg = `Row ${rowNum}: invalid type "${row.type || row.Type}"`;
+        errors.push(msg);
+        this.logger.warn(`${msg} - row=${JSON.stringify(row)}`);
+        return;
+      }
       const amount = parseFloat(amountRaw);
-      if (!amount || amount <= 0) { errors.push(`Row ${rowNum}: invalid amount "${amountRaw}"`); return; }
+      if (!amount || amount <= 0) {
+        const msg = `Row ${rowNum}: invalid amount "${amountRaw}"`;
+        errors.push(msg);
+        this.logger.warn(`${msg} - row=${JSON.stringify(row)}`);
+        return;
+      }
       const category = categoryByName.get((categoryName || '').toLowerCase());
-      if (!category) { errors.push(`Row ${rowNum}: unknown category "${categoryName}"`); return; }
-      if (!date || !dayjs(date).isValid()) { errors.push(`Row ${rowNum}: invalid date "${date}"`); return; }
+      if (!category) {
+        const msg = `Row ${rowNum}: unknown category "${categoryName}"`;
+        errors.push(msg);
+        this.logger.warn(`${msg} - row=${JSON.stringify(row)}`);
+        return;
+      }
+      if (!date || !dayjs(date).isValid()) {
+        const msg = `Row ${rowNum}: invalid date "${date}"`;
+        errors.push(msg);
+        this.logger.warn(`${msg} - row=${JSON.stringify(row)}`);
+        return;
+      }
 
       const subcategory = subcategoryName ? subcategoryByName.get(subcategoryName.toLowerCase()) : undefined;
       const paymentMethod = paymentMethodName ? paymentMethodByName.get(paymentMethodName.toLowerCase()) : undefined;
