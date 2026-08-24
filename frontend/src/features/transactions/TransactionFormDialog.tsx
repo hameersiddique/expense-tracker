@@ -100,7 +100,8 @@ export default function TransactionFormDialog({
 
     if (nextMode === 'transfer' && editing) {
       const e = editing as any;
-      setFromMode(sideFromAccountId(e.fromAccountId, e.external && !e.fromAccountId));
+      const derivedFromMode = sideFromAccountId(e.fromAccountId, e.external && !e.fromAccountId);
+      setFromMode(derivedFromMode === 'external' ? 'cash' : derivedFromMode);
       setToMode(sideFromAccountId(e.toAccountId, e.external && !e.toAccountId));
       setFromAccountIdState(e.fromAccountId ?? '');
       setToAccountIdState(e.toAccountId ?? '');
@@ -276,10 +277,12 @@ export default function TransactionFormDialog({
             onChange={(_, v: Mode | null) => {
               if (!v) return;
               setMode(v);
+              clearErrors();
               if (v === 'income' || v === 'expense') {
                 setType(v);
                 setValue('type', v);
               }
+              if (v === 'transfer' && fromMode === 'external') setFromMode('cash');
             }}
           >
             <ToggleButton value="expense" color="error">Expense</ToggleButton>
@@ -408,7 +411,6 @@ export default function TransactionFormDialog({
               <TextField select label="From" fullWidth value={fromMode} onChange={(e) => setFromMode(e.target.value as TransferSide)}>
                 <MenuItem value="cash">Cash</MenuItem>
                 <MenuItem value="account">Bank</MenuItem>
-                <MenuItem value="external">Out of wallet</MenuItem>
               </TextField>
               {renderSideBankPicker('from', fromMode, fromAccountIdState, setFromAccountIdState)}
 
