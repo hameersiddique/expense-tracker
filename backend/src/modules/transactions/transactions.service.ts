@@ -129,33 +129,33 @@ export class TransactionsService {
   }
 
   async update(userId: string, id: string, dto: UpdateTransactionDto): Promise<Transaction> {
-    this.logger.debug(`Updating transaction ${id} for user ${userId} with payload: ${JSON.stringify(dto)}`);
-    const transaction = await this.findOne(userId, id);
-    if (dto.categoryId) await this.validateCategoryOwnership(userId, dto.categoryId, dto.type ?? transaction.type);
-
-    const updatedData = { ...dto } as Partial<Transaction>;
-    if (dto.amount !== undefined) updatedData.amount = dto.amount.toFixed(2);
-    if (dto.date || dto.time) {
-      updatedData.date = this.normalizeTransactionDate(dto.date ?? transaction.date, dto.time, transaction.date);
-    }
-    delete (updatedData as any).time;
-
-    Object.assign(transaction, updatedData);
-    // Enforce account when payment method is non-cash
-    if (transaction.paymentMethodId) {
-      const pm = await this.paymentMethodsRepository.findOne({ where: { id: transaction.paymentMethodId } });
-      if (pm && pm.type !== 'cash' && !transaction.accountId) {
-        this.logger.warn(`Validation failed for transaction ${id}: non-cash payment method without account`);
-        throw new BadRequestException('An account must be selected when using a non-cash payment method');
-      }
-    }
     try {
+      this.logger.debug(`Updating transaction ${id} for user ${userId} with payload: ${JSON.stringify(dto)}`);
+      const transaction = await this.findOne(userId, id);
+      if (dto.categoryId) await this.validateCategoryOwnership(userId, dto.categoryId, dto.type ?? transaction.type);
+
+      const updatedData = { ...dto } as Partial<Transaction>;
+      if (dto.amount !== undefined) updatedData.amount = dto.amount.toFixed(2);
+      if (dto.date || dto.time) {
+        updatedData.date = this.normalizeTransactionDate(dto.date ?? transaction.date, dto.time, transaction.date);
+      }
+      delete (updatedData as any).time;
+
+      Object.assign(transaction, updatedData);
+      // Enforce account when payment method is non-cash
+      if (transaction.paymentMethodId) {
+        const pm = await this.paymentMethodsRepository.findOne({ where: { id: transaction.paymentMethodId } });
+        if (pm && pm.type !== 'cash' && !transaction.accountId) {
+          this.logger.warn(`Validation failed for transaction ${id}: non-cash payment method without account`);
+          throw new BadRequestException('An account must be selected when using a non-cash payment method');
+        }
+      }
       await this.transactionsRepository.save(transaction);
+      return this.findOne(userId, id);
     } catch (err: any) {
-      this.logger.error(`Failed to save transaction ${id}: ${err?.message ?? err}`, err?.stack);
+      this.logger.error(`Error updating transaction ${id} for user ${userId}: ${err?.message ?? err}`, err?.stack);
       throw err;
     }
-    return this.findOne(userId, id);
   }
 
   async remove(userId: string, id: string): Promise<{ message: string }> {
