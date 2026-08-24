@@ -133,6 +133,14 @@ export default function TransactionFormDialog({
   const selectedPaymentMethod = paymentMethodsQuery.data?.find((p) => p.id === selectedPaymentMethodId);
   const filteredCategories = (categoriesQuery.data ?? []).filter((c) => c.type === type);
 
+  // Income doesn't need a parent-category step: the subcategories under the
+  // income category/categories ARE the sources of income (Salary, Freelancing,
+  // Rental Income, etc). Flatten them into one list, remembering each one's
+  // parent categoryId so we can still populate categoryId on save.
+  const incomeSources = (categoriesQuery.data ?? [])
+    .filter((c) => c.type === 'income')
+    .flatMap((c) => c.subcategories.map((s) => ({ ...s, categoryId: c.id })));
+
   useEffect(() => {
     if (selectedCategory && selectedSubcategoryId) {
       const validSubcategory = selectedCategory.subcategories.some((s) => s.id === selectedSubcategoryId);
@@ -289,7 +297,7 @@ export default function TransactionFormDialog({
             helperText={errors.amount?.message}
           />
 
-          {mode !== 'transfer' && (
+          {mode === 'expense' && (
             <>
               <Controller
                 name="categoryId"
@@ -298,7 +306,7 @@ export default function TransactionFormDialog({
                 render={({ field }) => (
                   <TextField
                     select
-                    label={mode === 'income' ? 'Source of income' : 'Category'}
+                    label="Category"
                     fullWidth
                     {...field}
                     error={!!errors.categoryId}
@@ -330,6 +338,37 @@ export default function TransactionFormDialog({
                   )}
                 />
               )}
+            </>
+          )}
+
+          {mode === 'income' && (
+            <Controller
+              name="subcategoryId"
+              control={control}
+              defaultValue={editing?.subcategoryId ?? ''}
+              render={({ field }) => (
+                <TextField
+                  select
+                  label="Source of income"
+                  fullWidth
+                  {...field}
+                  error={!!errors.categoryId}
+                  helperText={errors.categoryId?.message}
+                  onChange={(event) => {
+                    field.onChange(event);
+                    const sourceId = event.target.value;
+                    const source = incomeSources.find((s) => s.id === sourceId);
+                    setValue('categoryId', source?.categoryId ?? '');
+                  }}
+                >
+                  {incomeSources.map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+                </TextField>
+              )}
+            />
+          )}
+
+          {mode !== 'transfer' && (
+            <>
               <Controller
                 name="paymentMethodId"
                 control={control}
@@ -366,16 +405,14 @@ export default function TransactionFormDialog({
 
           {mode === 'transfer' && (
             <Stack spacing={1}>
-              <Typography variant="subtitle2">From</Typography>
-              <TextField select label="Source" fullWidth value={fromMode} onChange={(e) => setFromMode(e.target.value as TransferSide)}>
+              <TextField select label="From" fullWidth value={fromMode} onChange={(e) => setFromMode(e.target.value as TransferSide)}>
                 <MenuItem value="cash">Cash</MenuItem>
                 <MenuItem value="account">Bank</MenuItem>
                 <MenuItem value="external">Out of wallet</MenuItem>
               </TextField>
               {renderSideBankPicker('from', fromMode, fromAccountIdState, setFromAccountIdState)}
 
-              <Typography variant="subtitle2">To</Typography>
-              <TextField select label="Destination" fullWidth value={toMode} onChange={(e) => setToMode(e.target.value as TransferSide)}>
+              <TextField select label="To" fullWidth value={toMode} onChange={(e) => setToMode(e.target.value as TransferSide)}>
                 <MenuItem value="cash">Cash</MenuItem>
                 <MenuItem value="account">Bank</MenuItem>
                 <MenuItem value="external">Out of wallet</MenuItem>
