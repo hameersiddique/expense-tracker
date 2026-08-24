@@ -56,6 +56,7 @@ export class DashboardService {
       .select('category.name', 'name')
       .addSelect('SUM(t.amount)', 'value')
       .where('t.userId = :userId', { userId })
+      .andWhere('t.is_external IS NOT TRUE')
       .andWhere('t.type = :type', { type: TransactionType.EXPENSE });
 
     this.applyDateFilter(qb, query);
@@ -71,6 +72,7 @@ export class DashboardService {
       .select('category.name', 'name')
       .addSelect('SUM(t.amount)', 'value')
       .where('t.userId = :userId', { userId })
+      .andWhere('t.is_external IS NOT TRUE')
       .andWhere('t.type = :type', { type: TransactionType.INCOME });
 
     this.applyDateFilter(qb, query);
@@ -86,6 +88,8 @@ export class DashboardService {
       .addSelect('t.type', 'type')
       .addSelect('SUM(t.amount)', 'total')
       .where('t.userId = :userId', { userId });
+
+    qb.andWhere('t.is_external IS NOT TRUE');
 
     this.applyDateFilter(qb, query);
 
@@ -122,7 +126,8 @@ export class DashboardService {
       .select('pm.name', 'name')
       .addSelect('SUM(t.amount)', 'value')
       .where('t.userId = :userId', { userId })
-      .andWhere('pm.id IS NOT NULL');
+      .andWhere('pm.id IS NOT NULL')
+      .andWhere('t.is_external IS NOT TRUE');
 
     this.applyDateFilter(qb, query);
 
@@ -140,6 +145,7 @@ export class DashboardService {
         .select('SUM(CASE WHEN t.type = :inc THEN t.amount ELSE -t.amount END)', 'balance')
         .where('t.userId = :userId', { userId })
         .andWhere('t.accountId = :accountId', { accountId: a.id })
+        .andWhere('t.is_external IS NOT TRUE')
         .setParameter('inc', TransactionType.INCOME);
       const row = await qb.getRawOne();
       const txBalance = Number(row?.balance ?? 0);
@@ -153,6 +159,7 @@ export class DashboardService {
       .createQueryBuilder('t')
       .select('SUM(CASE WHEN t.type = :inc THEN t.amount ELSE -t.amount END)', 'balance')
       .where('t.userId = :userId', { userId })
+      .andWhere('t.is_external IS NOT TRUE')
       .setParameter('inc', TransactionType.INCOME);
 
     if (cashPmIds.length > 0) {
@@ -181,7 +188,7 @@ export class DashboardService {
   }
 
   private async getTransactionsForUser(userId: string, query: DashboardQueryDto): Promise<Transaction[]> {
-    const qb = this.transactionsRepository.createQueryBuilder('t').where('t.userId = :userId', { userId });
+    const qb = this.transactionsRepository.createQueryBuilder('t').where('t.userId = :userId', { userId }).andWhere('t.is_external IS NOT TRUE');
     this.applyDateFilter(qb, query);
     return qb.getMany();
   }

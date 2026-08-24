@@ -60,7 +60,41 @@ export class TransactionsService {
     qb.skip((page - 1) * limit).take(limit);
 
     const [items, totalItems] = await qb.getManyAndCount();
-    return buildPaginatedResult(items, totalItems, page, limit);
+
+    // Compute available balance for each transaction (account balance at that transaction)
+    const cashPmIds = (await this.paymentMethodsRepository.find({ where: { userId, type: PaymentMethodType.CASH } })).map((p) => p.id);
+
+    const itemsWithBalance = await Promise.all(items.map(async (t) => {
+      let available: number | null = null;
+      if (t.accountId) {
+        const account = await this.accountsRepository.findOne({ where: { id: t.accountId } });
+        const qbBal = this.transactionsRepository.createQueryBuilder('tx')
+          .select('SUM(CASE WHEN tx.type = :inc THEN tx.amount ELSE -tx.amount END)', 'balance')
+          .where('tx.userId = :userId', { userId })
+          .andWhere('tx.accountId = :accountId', { accountId: t.accountId })
+          .andWhere('tx.is_external IS NOT TRUE')
+          .andWhere('tx.date <= :date', { date: t.date })
+          .setParameter('inc', TransactionType.INCOME);
+        const row = await qbBal.getRawOne();
+        const txBalance = Number(row?.balance ?? 0);
+        const initial = Number(account?.initialBalance ?? 0);
+        available = Math.round((initial + txBalance) * 100) / 100;
+      } else {
+        const qbBal = this.transactionsRepository.createQueryBuilder('tx')
+          .select('SUM(CASE WHEN tx.type = :inc THEN tx.amount ELSE -tx.amount END)', 'balance')
+          .where('tx.userId = :userId', { userId })
+          .andWhere('tx.is_external IS NOT TRUE')
+          .andWhere('tx.date <= :date', { date: t.date })
+          .setParameter('inc', TransactionType.INCOME);
+        if (cashPmIds.length > 0) qbBal.andWhere('tx.payment_method_id IS NULL OR tx.payment_method_id IN (:...cashPmIds)', { cashPmIds });
+        else qbBal.andWhere('tx.payment_method_id IS NULL');
+        const row = await qbBal.getRawOne();
+        available = Math.round((Number(row?.balance ?? 0)) * 100) / 100;
+      }
+      return Object.assign(t, { availableBalance: available });
+    }));
+
+    return buildPaginatedResult(itemsWithBalance as unknown as Transaction[], totalItems, page, limit);
   }
 
   async findOne(userId: string, id: string): Promise<Transaction> {
@@ -269,8 +303,8 @@ export class TransactionsService {
     return { imported, failed: errors.length, errors };
   }
 
-  async createTransfer(userId: string, dto: { fromAccountId?: string | null; toAccountId?: string | null; amount: number; date?: string; notes?: string }) {
-    const { fromAccountId = null, toAccountId = null, amount, date, notes } = dto;
+  async createTransfer(userId: string, dto: { fromAccountId?: string | null; toAccountId?: string | null; amount: number; date?: string; notes?: string; external?: boolean }) {
+    const { fromAccountId = null, toAccountId = null, amount, date, notes, external = false } = dto;
     if (!amount || amount <= 0) throw new BadRequestException('Invalid transfer amount');
     if (fromAccountId === toAccountId) throw new BadRequestException('Source and destination accounts must differ');
     if (!fromAccountId && !toAccountId) throw new BadRequestException('Source or destination must be specified');
@@ -302,6 +336,7 @@ export class TransactionsService {
         paymentMethodId: cashMethod.id,
         accountId,
         notes: notes ?? null,
+        isExternal: external && !isIncome, // mark external when it's an expense transfer out
       });
       tasks.push(transaction);
     } else {
@@ -320,6 +355,7 @@ export class TransactionsService {
         paymentMethodId: null,
         accountId: fromAccountId,
         notes: notes ?? null,
+        isExternal: external === true,
       });
 
       const incomeTx = this.transactionsRepository.create({
@@ -332,6 +368,7 @@ export class TransactionsService {
         paymentMethodId: null,
         accountId: toAccountId,
         notes: notes ?? null,
+        isExternal: external === true,
       });
       tasks.push(expenseTx, incomeTx);
     }

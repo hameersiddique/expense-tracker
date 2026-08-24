@@ -65,6 +65,7 @@ export interface Transaction {
   account?: Account | null;
   notes: string | null;
   createdAt: string;
+  availableBalance?: number;
 }
 
 export interface PaginatedResult<T> {

@@ -35,6 +35,7 @@ export class Transaction {
   @ManyToOne(() => Account, (a) => a.transactions, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'account_id' }) account: Account | null;
   @Column({ type: 'text', nullable: true }) notes: string | null;
+  @Column({ name: 'is_external', type: 'boolean', default: false }) isExternal: boolean;
   @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
   @UpdateDateColumn({ name: 'updated_at' }) updatedAt: Date;
   @DeleteDateColumn({ name: 'deleted_at' }) deletedAt: Date | null;

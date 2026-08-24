@@ -47,7 +47,7 @@ export class TransactionsController {
 
   @Post('transfer')
   @ApiOperation({ summary: 'Transfer funds between cash and accounts' })
-  transfer(@CurrentUser('sub') userId: string, @Body() body: { fromAccountId?: string | null; toAccountId?: string | null; amount: number; date?: string; notes?: string }) {
+  transfer(@CurrentUser('sub') userId: string, @Body() body: { fromAccountId?: string | null; toAccountId?: string | null; amount: number; date?: string; notes?: string; external?: boolean }) {
     return this.transactionsService.createTransfer(userId, body);
   }
 

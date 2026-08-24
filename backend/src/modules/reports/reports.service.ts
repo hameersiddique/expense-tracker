@@ -24,6 +24,7 @@ export class ReportsService {
       .leftJoinAndSelect('t.category', 'category')
       .leftJoinAndSelect('t.subcategory', 'subcategory')
       .where('t.userId = :userId', { userId })
+      .andWhere('t.is_external IS NOT TRUE')
       .andWhere('t.date >= :dateFrom', { dateFrom })
       .andWhere('t.date <= :dateTo', { dateTo })
       .orderBy('t.date', 'ASC')

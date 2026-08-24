@@ -158,6 +158,7 @@ export default function TransactionsPage() {
               <TableCell>Date</TableCell>
               <TableCell>Type</TableCell>
               <TableCell align="right">Amount</TableCell>
+              <TableCell align="right">Available</TableCell>
               <TableCell>Category</TableCell>
               <TableCell>Subcategory</TableCell>
               <TableCell>Payment Method</TableCell>
@@ -177,6 +178,7 @@ export default function TransactionsPage() {
                 <TableCell>{t.date}</TableCell>
                 <TableCell><Chip size="small" label={t.type} color={t.type === 'income' ? 'success' : 'error'} variant="outlined" /></TableCell>
                 <TableCell align="right">{Number(t.amount).toFixed(2)}</TableCell>
+                <TableCell align="right">{t.availableBalance !== undefined && t.availableBalance !== null ? Number(t.availableBalance).toFixed(2) : '—'}</TableCell>
                 <TableCell>{t.category?.name}</TableCell>
                 <TableCell>{t.subcategory?.name ?? '—'}</TableCell>
                 <TableCell>{t.paymentMethod?.name ?? '—'}</TableCell>

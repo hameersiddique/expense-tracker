@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, MenuItem, Stack, Typography,
+  FormControlLabel, Checkbox,
 } from '@mui/material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
@@ -16,6 +17,7 @@ const schema = z.object({
   amount: z.coerce.number().positive('Amount must be greater than 0'),
   date: z.string().min(1, 'Date is required'),
   notes: z.string().max(1000).optional(),
+  external: z.boolean().optional(),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -31,6 +33,7 @@ export default function TransferDialog({ open, onClose }: { open: boolean; onClo
       amount: undefined,
       date: dayjs().format('YYYY-MM-DD'),
       notes: '',
+      external: false,
     },
   });
 
@@ -47,6 +50,7 @@ export default function TransferDialog({ open, onClose }: { open: boolean; onClo
         amount: undefined,
         date: dayjs().format('YYYY-MM-DD'),
         notes: '',
+        external: false,
       });
     }
   }, [open, reset]);
@@ -59,6 +63,7 @@ export default function TransferDialog({ open, onClose }: { open: boolean; onClo
         amount: values.amount,
         date: values.date,
         notes: values.notes || undefined,
+        external: values.external || false,
       } as const;
       return api.post('/transactions/transfer', payload);
     },
@@ -122,6 +127,7 @@ export default function TransferDialog({ open, onClose }: { open: boolean; onClo
           <TextField label="Amount" type="number" fullWidth inputProps={{ step: '0.01' }} {...register('amount')} error={!!errors.amount} helperText={errors.amount?.message} />
           <TextField label="Date" type="date" fullWidth InputLabelProps={{ shrink: true }} {...register('date')} error={!!errors.date} helperText={errors.date?.message} />
           <TextField label="Notes (optional)" fullWidth multiline rows={2} {...register('notes')} error={!!errors.notes} helperText={errors.notes?.message} />
+          <FormControlLabel control={<Checkbox {...register('external')} defaultChecked={false} />} label="Transfer out of wallet (external)" />
         </Stack>
       </DialogContent>
       <DialogActions>
