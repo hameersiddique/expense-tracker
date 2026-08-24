@@ -53,7 +53,8 @@ export class CategoriesService {
 
   async remove(userId: string, id: string): Promise<{ message: string }> {
     const category = await this.findOne(userId, id);
-    const usageCount = await this.transactionsRepository.count({ where: { categoryId: id } });
+    // Include soft-deleted transactions in the usage count to avoid foreign key errors
+    const usageCount = await this.transactionsRepository.createQueryBuilder('t').withDeleted().where('t.categoryId = :id', { id }).getCount();
     if (usageCount > 0) throw new BadRequestException(`Cannot delete a category used by ${usageCount} transaction(s). Archive it instead.`);
     await this.categoriesRepository.remove(category);
     return { message: 'Category deleted' };
